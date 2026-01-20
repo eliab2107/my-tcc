@@ -1,39 +1,10 @@
 from metrics.interfaces.consumer_metrics_provider import ConsumerMetricsProvider
 from threading import Thread, Lock
-from time import sleep, monotonic
+from time import sleep, monotonic, time
 from dataclasses import dataclass
 from collections import deque
+from DTOs.metrics_dtos import RawData, DerivedData, HistoryById, AllHistory
 
-
-@dataclass
-class RawData:
-    timestamp: float
-    message_count: int
-    total_messages: int
-    total_acks: int
-
-
-@dataclass
-class DerivedData:
-    timestamp: float
-    msg_rate: float
-    ack_rate: float
-    in_flight: int
-
-
-@dataclass
-class HistoryById:
-    id:int 
-    raw_data_history:RawData
-    derived_data_history:DerivedData
-    last_raw:list
-
-
-@dataclass
-class AllHistory:
-    raw_history:dict
-    derived_history:dict
-    
     
 class Metrics:
     def __init__(self, provider:ConsumerMetricsProvider, interval: float = 1.0, window_size: int = 60):
@@ -69,7 +40,7 @@ class Metrics:
         while self.running:
             timestamp = monotonic()
             snapshot = self.provider.snapshot_metrics()
-
+            print(f"[METRICS] Snapshot coletado: {snapshot}")
             with self.lock:
                 for consumer_id, data in snapshot.items():
                     self.process_consumer(consumer_id, data, timestamp)
@@ -77,20 +48,17 @@ class Metrics:
             sleep(self.interval)
 
 
-    def process_consumer(self, consumer_id, data, timestamp):
-        message_count, total_messages, total_acks, total_proc_time = data
-
-        raw = RawData(timestamp=timestamp, message_count=message_count, total_messages=total_messages, total_acks=total_acks, total_processing_time=total_proc_time )
+    def process_consumer(self, consumer_id, raw:RawData, timestamp):       
 
         if consumer_id not in self.raw_history:
-            self.raw_history[consumer_id] = deque(maxlen=self.window_size)
-            self.derived_history[consumer_id] = deque(maxlen=self.window_size)
+            self.raw_history[consumer_id] = []
+            self.derived_history[consumer_id] = []
             self.last_raw[consumer_id] = raw
             self.raw_history[consumer_id].append(raw)
             return
 
         previous = self.last_raw[consumer_id]
-        dt = timestamp - previous.timestamp
+        dt = time() - previous.timestamp
         if dt <= 0:
             return
 
@@ -103,7 +71,6 @@ class Metrics:
      
 
         derived = DerivedData(timestamp=timestamp, msg_rate=msg_rate, ack_rate=ack_rate, in_flight=in_flight)
-
         self.raw_history[consumer_id].append(raw)
         self.derived_history[consumer_id].append(derived)
         self.last_raw[consumer_id] = raw

@@ -2,31 +2,35 @@ import pika
 import json
 import time
 from threading import Thread, Lock
+from DTOs.metrics_dtos import RawData
 
 class Consumer:
-    def __init__(self, id:int, prefetch_count=1000, host="localhost"):
-        self.connection = pika.BlockingConnection( pika.ConnectionParameters(host=host))
+    def __init__(self, id:int, prefetch_count=100, host="localhost"):
+        self.connection = pika.BlockingConnection(pika.ConnectionParameters(host=host))
         self.id = id
         self.channel = self.connection.channel()
         self.channel.queue_declare(queue="fila_teste")
-       
         self.message_count = 0
         self.total_message_count = 0
         self.total_ack_count = 0
         self.processing_time = []
         self.lock = Lock() 
-        self.prefeth_count = prefetch_count
-        self.channel.basic_qos(prefetch_count=self.prefeth_count)
-        
+        self.prefetch_count = prefetch_count
+        self.channel.basic_qos(prefetch_count=self.prefetch_count)
+        self.comands = []
+        self.comands_lock = Lock()
+        self.apply_control_commands_thread = Thread(target=self.apply_control_commands, daemon=True)
+        self.apply_control_commands_thread.start()
+
 
     def callback(self, ch, method, properties, body):
         start = time.monotonic()
         message = json.loads(body)
 
-        with self.lock:
-            self.message_count += 1
-            self.total_message_count +=1
         try:
+            with self.lock:
+                self.message_count += 1
+                self.total_message_count +=1
             self.process_message(message)
             
             ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -34,10 +38,12 @@ class Consumer:
                 self.total_ack_count +=1
             end = time.monotonic()
             self.processing_time.append(end-start)
-            
+            if len(self.comands) != 0:
+                cmd = self.comands.pop(0)
+                self.set_new_prefetch_count(cmd.prefetch)
+                
         except Exception as e:
-            print("ERROR: ", e)
-            
+            print("ERROR: ", e)       
             
             
     def start_consuming(self)-> None:
@@ -50,29 +56,12 @@ class Consumer:
         self.channel.start_consuming()
 
 
-    def start_monitor(self)-> None:
-        def monitor():
-            while True:
-                time.sleep(2)
-                with self.lock:
-                    print(f"[MONITOR] Mensagens recebidas: {self.message_count}")
-                    self.message_count = 0
-                    
-        Thread(target=monitor, daemon=True).start()
-
-
     def get_metrics(self)->list:
-        with self.lock:
-            message_count  = self.message_count
-            process_times  = self.processing_time
-            total_messages = self.total_message_count
-            total_ack      = self.total_ack_count 
-            
+        with self.lock:          
+            raw_data = RawData(id=self.id, timestamp=time.time(), message_count=self.message_count, total_messages=self.total_message_count, total_acks=self.total_ack_count, prefetch_count=self.prefetch_count)
             self.processing_time = []
             self.message_count   = 0
-            
-        #da pra retornar um rawData daqui
-        return [message_count, total_messages, total_ack, self.prefeth_count, process_times]
+        return raw_data
     
     
     def get_and_reset_message_count(self):
@@ -85,13 +74,24 @@ class Consumer:
     def set_new_prefetch_count(self, new_prefetch_vount:int)-> None:
         with self.lock:
             self.channel.basic_qos(prefetch_count=new_prefetch_vount)
-            self.prefeth_count = new_prefetch_vount
+            self.prefetch_count = new_prefetch_vount
+
 
     def process_message(self, data):
-        time.sleep(0.1)
+        time.sleep(0.001)
         return 1373737/3
+    
         
-        
+    def apply_control_commands(self):
+        while True:
+            if len(self.comands) == 0:
+                time.sleep(2)
+                continue
+            cmd = self.comands.pop(0)  
+            self.connection.add_callback_threadsafe(lambda d=cmd.prefetch: self.set_new_prefetch_count(d))
+            print(f"[CONSUMER {self.id}] Applied command: {cmd}")
+            
+            
 if __name__ == "__main__":
     consumer = Consumer()
     consumer.start_monitor()

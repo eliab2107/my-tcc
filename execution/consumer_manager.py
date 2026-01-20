@@ -1,7 +1,9 @@
 import time
 from threading import Thread
-from clients.consumer import Consumer   # ajuste o import conforme sua estrutura
-from typing import List
+from execution.clients.consumer import Consumer   
+from typing import List, Dict
+from DTOs.decision import Decision
+
 class ConsumerManager:
     def __init__(self, num_consumers: int = 1, monitor_interval: float = 1.0):
         self.num_consumers = num_consumers
@@ -50,18 +52,26 @@ class ConsumerManager:
 
         return metrics
         
+        
     def stop(self):
         self.running = False
         print("Processo encerrado")
     
-    def set_news_prefetch_counts(self):
-        #para cada id recebido
-        #pegar o consumidor e atualizar o pc
-        pass
+    
+    def set_new_prefetch_counts(self, id:int, new_pc:int):
+        self.consumers[id].set_new_prefetch_count(new_pc)
     
     
     def get_consumers(self):
         return self.consumers
+
+
+    def update_prefetchs(self, decisions:List[Decision])-> None:
+        for decision in decisions:
+            consumer = self.consumers[decision.consumer_id]
+            with consumer.comands_lock:
+                consumer.comands.append(decision)
+
 
 if __name__ == "__main__":
     manager = ConsumerManager(num_consumers=3)

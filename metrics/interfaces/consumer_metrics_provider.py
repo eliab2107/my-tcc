@@ -1,5 +1,6 @@
-from typing import Protocol
+from abc import ABC, abstractmethod
 
-class ConsumerMetricsProvider(Protocol):
+class ConsumerMetricsProvider(ABC):
+    @abstractmethod
     def snapshot_metrics(self) -> dict:  
         ...
