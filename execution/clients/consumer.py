@@ -5,7 +5,7 @@ from threading import Thread, Lock
 from DTOs.metrics_dtos import RawData
 
 class Consumer:
-    def __init__(self, id:int, prefetch_count=100, host="localhost"):
+    def __init__(self, id:int, prefetch_count=1, host="localhost"):
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(host=host))
         self.id = id
         self.channel = self.connection.channel()
