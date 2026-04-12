@@ -10,7 +10,7 @@ class FirstPolicy(BaseDecisionPolicy):
     def decide(self, allHistory:AllHistory ) -> List[Decision]:
         decisions = []
        
-        new_prefetch = allHistory.raw_history[0][len(allHistory.raw_history[0]) - 1].prefetch_count + 10 
+        new_prefetch = allHistory.raw_history[0][len(allHistory.raw_history[0]) - 1].prefetch_count + 1
         decisions.append(Decision(consumer_id=0, prefetch=new_prefetch))
         
         return decisions
