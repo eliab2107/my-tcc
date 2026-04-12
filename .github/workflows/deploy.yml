@@ -1,0 +1,34 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [ main ] # Executa quando você envia para a branch main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Entra na pasta do projeto (crie-a se não existir)
+            mkdir -p ~/app
+            cd ~/app
+            
+            # Aqui você pode clonar o repo ou usar o rsync. 
+            # Para simplificar via SSH direto:
+            sudo dnf install git -y
+            if [ -d ".git" ]; then git pull; else git clone https://github.com/${{ github.repository }} .; fi
+            
+            # Build e Run do Container do Producer
+            docker build -t meu-producer .
+            docker stop rodando-producer || true
+            docker rm rodando-producer || true
+            docker run -d --name rodando-producer --network host meu-producer
