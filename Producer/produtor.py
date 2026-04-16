@@ -49,7 +49,6 @@ class Produtor():
             )
 
             self.counter += 1
-            time.sleep(self.time_sleep)
 
 if __name__ == "__main__":
     time_sleep = 1  # Tempo de espera entre mensagens (em segundos)
