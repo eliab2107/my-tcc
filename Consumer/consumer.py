@@ -8,7 +8,7 @@ from threading import Thread, Lock
 import os
 load_dotenv()
 class Consumer:
-    def __init__(self, id:int, prefetch_count=1, task_level=1):
+    def __init__(self, id:int, prefetch_count=4, task_level=1):
         self.host = os.getenv("RABBITMQ_HOST")
         self.user = os.getenv("RABBITMQ_USER")
         self.password = os.getenv("RABBITMQ_PASS")
