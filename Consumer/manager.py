@@ -70,8 +70,9 @@ class ConsumerManager:
             time.sleep(self.monitor_interval)
             
             # Coleta os dados: [0] é processamento  [1] é tempo de vida/fila
-            dados = self.consumers[0].get_data()
-            qtd_mensagens = len(dados)
+            if len(self.consumers) > 0:
+                dados = self.consumers[0].get_data()
+                qtd_mensagens = len(dados)
             
             if qtd_mensagens > 0:
                 tempos_procesamento = [d[0] for d in dados]
@@ -106,7 +107,7 @@ class ConsumerManager:
             with open(self.filename, 'a', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow(linha)
-
+            dados.clear() # Limpa os dados após o registro
             print(f"[DATASET] Linha registrada: {qtd_mensagens} msgs processadas.")
 
     
@@ -138,9 +139,18 @@ class ConsumerManager:
         
         
     def stop(self):
-        self.running = False
+        self.running = False # Para o monitor_loop
+        
         for c in self.consumers:
-            c.stop()
+            c.stop() # Envia o sinal thread-safe
+
+        print("[Manager] Aguardando encerramento das threads dos consumidores...")
+        for t in self.consumer_threads:
+            t.join(timeout=15) # Espera as threads morrerem sozinhas
+        
+        # Limpa as referências para o próximo ciclo
+        self.consumers = []
+        self.consumer_threads = []
     
     
     def set_new_prefetch_counts(self, id:int, new_pc:int):

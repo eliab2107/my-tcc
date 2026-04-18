@@ -6,7 +6,9 @@ import requests
 import math
 from threading import Thread, Lock
 import os
+
 load_dotenv()
+
 class Consumer:
     def __init__(self, id:int, prefetch_count=1, task_level=1):
         self.host = os.getenv("RABBITMQ_HOST")
@@ -76,9 +78,21 @@ class Consumer:
                 
 
     def stop(self):
-        self.channel.stop_consuming()
-        self.connection.close()
-    
+        """Chamado pela Thread do Manager"""
+        print(f"[Consumer {self.id}] Solicitando parada segura...")
+        if self.connection and self.connection.is_open:
+            # Envia o comando para a thread correta executar
+            self.connection.add_callback_threadsafe(self._realizar_parada_segura)
+            
+            
+    def _realizar_parada_segura(self):
+        """Executado pela Thread do Consumer (Dona da conexão)"""
+        print(f"[Consumer {self.id}] Fechando canais e conexão...")
+        if self.channel and self.channel.is_open:
+            self.channel.stop_consuming()
+        if self.connection and self.connection.is_open:
+            self.connection.close()
+            
             
 if __name__ == "__main__":
     consumer = Consumer(id=1)
