@@ -4,14 +4,21 @@ from Consumer import consumer
 from typing import List
 import psutil
 import os
+from dotenv import load_dotenv
 import csv
 from datetime import datetime
 import math 
 
+# Load environment variables from .env
+load_dotenv()
+
 class ConsumerManager:
-    def __init__(self, num_consumers: int = 1, monitor_interval: float = 1.0):
+    def __init__(self, filename: str, prefetch_count:int = 1, num_consumers: int = 1, monitor_interval: float = 5, task_level: int = 1):
         self.num_consumers = num_consumers
         self.monitor_interval = monitor_interval
+        self.prefetch_count = prefetch_count
+        self.task_level = task_level
+        self.filename = filename
         self.consumers: List[consumer.Consumer] = []
         self.consumer_threads:List[Thread] = []
         self.monitor_thread = None
@@ -23,7 +30,7 @@ class ConsumerManager:
         self.running = True
 
         for i in range(self.num_consumers):
-            consumidor = consumer.Consumer(id=i, prefetch_count=11, task_level=1)
+            consumidor = consumer.Consumer(id=i, prefetch_count=self.prefetch_count, task_level=self.task_level)
             thread = Thread(
                 target=consumidor.start_consuming,
                 daemon=True,
@@ -45,11 +52,11 @@ class ConsumerManager:
 
 
     def monitor_loop(self):
-        arquivo_csv = "dataset_tcc.csv"
+
         
         # Cria o cabeçalho do arquivo se ele não existir
         try:
-            with open(arquivo_csv, 'x', newline='') as f:
+            with open(self.filename, 'x', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow([
                     "timestamp", "qtd_mensagens", "avg_proc", "p95_proc", "p99_proc",
@@ -62,26 +69,26 @@ class ConsumerManager:
         while self.running:
             time.sleep(self.monitor_interval)
             
-            # 1. Coleta os dados (Supondo que d[0] é processamento e d[1] é tempo de vida/fila)
+            # Coleta os dados: [0] é processamento  [1] é tempo de vida/fila
             dados = self.consumers[0].get_data()
             qtd_mensagens = len(dados)
             
             if qtd_mensagens > 0:
-                tempos_proc = [d[0] for d in dados]
-                tempos_total = [d[1] for d in dados] # Tempo desde a criação
+                tempos_procesamento = [d[0] for d in dados]
+                tempos_total = [d[1] for d in dados] #Tempo de vida total da mensagem
 
                 # Médias
-                avg_proc = sum(tempos_proc) / qtd_mensagens
+                avg_processamento = sum(tempos_procesamento) / qtd_mensagens
                 avg_total = sum(tempos_total) / qtd_mensagens
 
                 # Percentis P95 e P99
-                p95_proc = self.calcular_percentil(tempos_proc, 95)
-                p99_proc = self.calcular_percentil(tempos_proc, 99)
+                p95_processamento = self.calcular_percentil(tempos_procesamento, 95)
+                p99_processamento = self.calcular_percentil(tempos_procesamento, 99)
                 
                 p95_total = self.calcular_percentil(tempos_total, 95)
                 p99_total = self.calcular_percentil(tempos_total, 99)
             else:
-                avg_proc = p95_proc = p99_proc = 0
+                avg_processamento = p95_processamento = p99_processamento = 0
                 avg_total = p95_total = p99_total = 0
 
             # 2. Recursos da Máquina
@@ -91,12 +98,12 @@ class ConsumerManager:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             linha = [
                 timestamp, qtd_mensagens, 
-                round(avg_proc, 4), round(p95_proc, 4), round(p99_proc, 4),
-                round(avg_total, 4), round(p95_total, 4), round(p99_total, 4),
+                round(avg_processamento, 10), round(p95_processamento, 10), round(p99_processamento, 10),
+                round(avg_total, 10), round(p95_total, 10), round(p99_total, 10),
                 pc_cpu, pc_ram, process_cpu, round(process_ram, 2), self.consumers[0].prefetch_count
             ]
 
-            with open(arquivo_csv, 'a', newline='') as f:
+            with open(self.filename, 'a', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow(linha)
 
@@ -113,7 +120,7 @@ class ConsumerManager:
         alto = math.ceil(indice)
         if baixo == alto:
             return lista_ordenada[int(indice)]
-        # Interpolação linear simples
+      
         d = indice - baixo
         return lista_ordenada[baixo] * (1 - d) + lista_ordenada[alto] * d
 
@@ -144,30 +151,76 @@ class ConsumerManager:
 
     
     def obter_consumo_recursos(self):
-        # 1. Consumo GLOBAL da Máquina (CPU e RAM)
-        cpu_global = psutil.cpu_percent(interval=None) # % de uso de todos os núcleos
-        ram_global = psutil.virtual_memory().percent    # % de uso da RAM total
-
-        # 2. Consumo do PROCESSO ATUAL (este script)
-      
-        
-        # O cpu_percent do processo requer um pequeno intervalo ou chamada dupla
-        # Na primeira chamada ele retorna 0.0, nas seguintes a variação desde a última
+        cpu_global = psutil.cpu_percent(interval=None) 
+        ram_global = psutil.virtual_memory().percent    
+    
         cpu_processo = self.processo.cpu_percent(interval=None)
         
-        # Memória em MB (RSS = Resident Set Size)
         ram_processo_mb = self.processo.memory_info().rss / (1024 * 1024)
 
         return cpu_global,  ram_global, cpu_processo,  ram_processo_mb
         
+        
+def iniciar_orquestracao():
+    # Read orchestrator configuration from environment with sensible defaults
+    prefetch_inicial = int(os.getenv('PREFETCH_INICIAL', '1'))
+    prefetch_final = int(os.getenv('PREFETCH_FINAL', '22'))
+    tempo_experimento_segundos = int(os.getenv('TEMPO_EXPERIMENTO_SEGUNDOS', '45'))
+    pausa_entre_ciclos = int(os.getenv('PAUSA_ENTRE_CICLOS', '10'))
+    task_level = int(os.getenv('TASK_LEVEL', '1'))
+    monitor_interval = int(os.getenv('MONITOR_INTERVAL', '10'))
+    print("--- INICIANDO BATERIA DE EXPERIMENTOS (1 a 22) ---")
 
+    for prefetch_atual in range(prefetch_inicial, prefetch_final + 1):
+        nome_arquivo = f"PC_{prefetch_atual}_TASK_{task_level}.csv"
+        
+        print(f"\n" + "="*50)
+        print(f"[EXPERIMENTO] Iniciando Ciclo {prefetch_atual}/22")
+        print(f"[EXPERIMENTO] Prefetch: {prefetch_atual}")
+        print(f"[EXPERIMENTO] Arquivo: {nome_arquivo}")
+        print(f"[EXPERIMENTO] Tempo(s): {tempo_experimento_segundos}")
+        print(f"[EXPERIMENTO] Pausa(s): {pausa_entre_ciclos}")
+        print("="*50)
+
+        # 1. Instancia o Manager para o prefetch específico
+        manager = ConsumerManager(
+            prefetch_count=prefetch_atual, 
+            filename=nome_arquivo,
+            monitor_interval=monitor_interval
+        )
+        
+        # 2. Inicia os consumidores e o monitoramento
+        manager.start_consumers()
+
+        try:
+            time.sleep(tempo_experimento_segundos)
+        except KeyboardInterrupt:
+            print("\n[AVISO] Orquestração interrompida pelo usuário.")
+            manager.stop()
+            break
+
+        # 4. Finaliza o ciclo atual
+        print(f"[INFO] Finalizando experimento de prefetch {prefetch_atual}...")
+        manager.stop()
+        
+        # 5. Pausa de 1 minuto antes do próximo prefetch
+        if prefetch_atual < prefetch_final:
+            print(f"[PAUSA] Aguardando {pausa_entre_ciclos} segundos para estabilização do sistema...")
+            time.sleep(pausa_entre_ciclos)
+
+    print("\n" + "!"*50)
+    print("BATERIA DE EXPERIMENTOS CONCLUÍDA COM SUCESSO!")
+    print("!"*50)
 
 if __name__ == "__main__":
-    manager = ConsumerManager(num_consumers=1, monitor_interval=5)
-    manager.start_consumers()
+    iniciar_orquestracao()
 
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        manager.stop()
+#if __name__ == "__main__":
+ #   manager = ConsumerManager(num_consumers=1, monitor_interval=5)
+  #  manager.start_consumers()
+
+   # try:
+    #    while True:
+     #       time.sleep(1)
+    #except KeyboardInterrupt:
+     #   manager.stop()

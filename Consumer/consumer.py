@@ -8,7 +8,7 @@ from threading import Thread, Lock
 import os
 load_dotenv()
 class Consumer:
-    def __init__(self, id:int, prefetch_count=4, task_level=1):
+    def __init__(self, id:int, prefetch_count=1, task_level=1):
         self.host = os.getenv("RABBITMQ_HOST")
         self.user = os.getenv("RABBITMQ_USER")
         self.password = os.getenv("RABBITMQ_PASS")
@@ -60,13 +60,24 @@ class Consumer:
 
     def process_message(self, data):
         network_url = "https://www.google.com"
-        try:
-           # r = requests.get(network_url, timeout=10)
+        if self.task_level == 1:
             for _ in range(self.task_level * 1_000):
                 _ = math.sqrt(12345.6789) * math.sin(0.5)
-        except Exception as e:
-            print(f"<- Erro de rede: {e}") 
-        
+                
+        elif self.task_level == 2:
+             for _ in range(self.task_level * 1_000_000):
+                _ = math.sqrt(12345.6789) * math.sin(0.5)
+                
+        elif self.task_level == 3:
+            try:
+                r = requests.get(network_url, timeout=10) 
+            except Exception as e:
+                print(f"<- Erro de rede: {e}") 
+                
+
+    def stop(self):
+        self.channel.stop_consuming()
+        self.connection.close()
     
             
 if __name__ == "__main__":
