@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 
 
-CMD ["python", "-m", "Consumer/consumer.py"]
+CMD ["python", "-m", "Consumer.manager"]

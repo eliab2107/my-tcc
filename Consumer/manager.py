@@ -169,10 +169,12 @@ def iniciar_orquestracao():
     pausa_entre_ciclos = int(os.getenv('PAUSA_ENTRE_CICLOS', '10'))
     task_level = int(os.getenv('TASK_LEVEL', '1'))
     monitor_interval = int(os.getenv('MONITOR_INTERVAL', '10'))
+    datasets_dir = os.getenv('DATASETS_DIR', 'datasets')
+    os.makedirs(datasets_dir, exist_ok=True)
     print("--- INICIANDO BATERIA DE EXPERIMENTOS (1 a 22) ---")
 
     for prefetch_atual in range(prefetch_inicial, prefetch_final + 1):
-        nome_arquivo = f"PC_{prefetch_atual}_TASK_{task_level}.csv"
+        nome_arquivo = os.path.join(datasets_dir, f"PC_{prefetch_atual}_TASK_{task_level}.csv")
         
         print(f"\n" + "="*50)
         print(f"[EXPERIMENTO] Iniciando Ciclo {prefetch_atual}/22")
