@@ -139,7 +139,8 @@ class ConsumerManager:
         
     def stop(self):
         self.running = False
-        print("Processo encerrado")
+        for c in self.consumers:
+            c.stop()
     
     
     def set_new_prefetch_counts(self, id:int, new_pc:int):
