@@ -14,7 +14,7 @@ class Consumer:
         self.host = os.getenv("RABBITMQ_HOST")
         self.user = os.getenv("RABBITMQ_USER")
         self.password = os.getenv("RABBITMQ_PASS")
-        print(f"Conectando ao RabbitMQ em {self.host} com usuário {self.user} {self.password}")
+        #print(f"Conectando ao RabbitMQ em {self.host} com usuário {self.user} {self.password}")
         credentials = pika.PlainCredentials(self.user, self.password)
 
         parametros = pika.ConnectionParameters(
@@ -44,7 +44,7 @@ class Consumer:
             self.messsages_metrics.append(dados)
                 
     def start_consuming(self)-> None:
-        print("[CONSUMER] Consumindo mensagens...")
+        #print("[CONSUMER] Consumindo mensagens...")
         return self.channel.start_consuming()
     
     

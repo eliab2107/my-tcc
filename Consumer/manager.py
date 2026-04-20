@@ -24,6 +24,7 @@ class ConsumerManager:
         self.monitor_thread = None
         self.running = False
         self.processo = psutil.Process(os.getpid())
+        self.data = []
 
 
     def start_consumers(self):
@@ -50,22 +51,27 @@ class ConsumerManager:
         )
         self.monitor_thread.start()
 
-
-    def monitor_loop(self):
-
-        
-        # Cria o cabeçalho do arquivo se ele não existir
+    
+    def save_data_in_csv(self):
         try:
             with open(self.filename, 'x', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow([
-                    "timestamp", "qtd_mensagens", "avg_proc", "p95_proc", "p99_proc",
+                    "timestamp", "qtd_mensagens", "avg_proc", "p95_proc", "p99_proc", 
                     "avg_queue", "p95_queue", "p99_queue", "cpu_global", "ram_global", 
                     "cpu_processo", "ram_processo_mb", "prefetch_count"
                 ])
+                for linha in self.data:
+                    writer.writerow(linha)
+                    
+                self.data.clear() # Limpa os dados após salvar
         except FileExistsError:
             pass
-
+        
+    
+                
+                
+    def monitor_loop(self):
         while self.running:
             time.sleep(self.monitor_interval)
             
@@ -101,14 +107,10 @@ class ConsumerManager:
                 timestamp, qtd_mensagens, 
                 round(avg_processamento, 10), round(p95_processamento, 10), round(p99_processamento, 10),
                 round(avg_total, 10), round(p95_total, 10), round(p99_total, 10),
-                pc_cpu, pc_ram, process_cpu, round(process_ram, 2), self.consumers[0].prefetch_count
+                pc_cpu, pc_ram, process_cpu, round(process_ram, 2), self.prefetch_count
             ]
 
-            with open(self.filename, 'a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(linha)
-            dados.clear() # Limpa os dados após o registro
-            print(f"[DATASET] Linha registrada: {qtd_mensagens} msgs processadas.")
+            self.data.append(linha)
 
     
 
@@ -175,20 +177,20 @@ class ConsumerManager:
 def iniciar_orquestracao():
     # Read orchestrator configuration from environment with sensible defaults
     prefetch_inicial = int(os.getenv('PREFETCH_INICIAL', '1'))
-    prefetch_final = int(os.getenv('PREFETCH_FINAL', '22'))
-    tempo_experimento_segundos = int(os.getenv('TEMPO_EXPERIMENTO_SEGUNDOS', '45'))
-    pausa_entre_ciclos = int(os.getenv('PAUSA_ENTRE_CICLOS', '10'))
+    prefetch_final = int(os.getenv('PREFETCH_FINAL', '30'))
+    tempo_experimento_segundos = int(os.getenv('TEMPO_EXPERIMENTO_SEGUNDOS', '3600'))
+    pausa_entre_ciclos = int(os.getenv('PAUSA_ENTRE_CICLOS', '300'))
     task_level = int(os.getenv('TASK_LEVEL', '1'))
-    monitor_interval = int(os.getenv('MONITOR_INTERVAL', '10'))
+    monitor_interval = int(os.getenv('MONITOR_INTERVAL', '5'))
     datasets_dir = os.getenv('DATASETS_DIR', 'datasets')
     os.makedirs(datasets_dir, exist_ok=True)
-    print("--- INICIANDO BATERIA DE EXPERIMENTOS (1 a 22) ---")
+    print("--- INICIANDO BATERIA DE EXPERIMENTOS (1 a 30) ---")
 
     for prefetch_atual in range(prefetch_inicial, prefetch_final + 1):
         nome_arquivo = os.path.join(datasets_dir, f"PC_{prefetch_atual}_TASK_{task_level}.csv")
         
         print(f"\n" + "="*50)
-        print(f"[EXPERIMENTO] Iniciando Ciclo {prefetch_atual}/22")
+        print(f"[EXPERIMENTO] Iniciando Ciclo {prefetch_atual}/30")
         print(f"[EXPERIMENTO] Prefetch: {prefetch_atual}")
         print(f"[EXPERIMENTO] Arquivo: {nome_arquivo}")
         print(f"[EXPERIMENTO] Tempo(s): {tempo_experimento_segundos}")
@@ -215,8 +217,8 @@ def iniciar_orquestracao():
         # 4. Finaliza o ciclo atual
         print(f"[INFO] Finalizando experimento de prefetch {prefetch_atual}...")
         manager.stop()
+        manager.save_data_in_csv() # 
         
-        # 5. Pausa de 1 minuto antes do próximo prefetch
         if prefetch_atual < prefetch_final:
             print(f"[PAUSA] Aguardando {pausa_entre_ciclos} segundos para estabilização do sistema...")
             time.sleep(pausa_entre_ciclos)
