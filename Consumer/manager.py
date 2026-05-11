@@ -1,5 +1,5 @@
 import time
-from threading import Thread
+from threading import Thread, Lock
 from Consumer import consumer
 from typing import List
 import psutil
@@ -7,43 +7,61 @@ import os
 from dotenv import load_dotenv
 import csv
 from datetime import datetime
-import math 
+import math
+from random import randint
+from policies.policies import BaseMessageQuantityPolicy 
 
 # Load environment variables from .env
 load_dotenv()
+# Constants / configurable via environment
+INTERVALO_DE_MONITORAMENTO = int(os.getenv("MONITOR_INTERVAL", 10))
+PREFETCH_INICIAL = int(os.getenv("PREFETCH_INICIAL", 4))
+CSV_FLUSH_INTERVAL = int(os.getenv("CSV_FLUSH_INTERVAL", 60))
+TARGET_CHANGE_INTERVAL = int(os.getenv("TARGET_CHANGE_INTERVAL", 60))
+DATASET_ARQUIVO = os.getenv("DATASET_ARQUIVO", "dataset.csv")
+TARGET_MESSAGES_SEQUENCE = [1000, 1100, 1300, 1500,2000, 2500, 3000] # Example sequence of target message counts for dynamic policy
+
 
 class ConsumerManager:
-    def __init__(self, filename: str, prefetch_count:int = 1, num_consumers: int = 1, monitor_interval: float = 5, task_level: int = 1):
-        self.num_consumers = num_consumers
+    def __init__(self, filename: str = DATASET_ARQUIVO, prefetch_count:int = PREFETCH_INICIAL, num_consumers: int = 1, monitor_interval: float = INTERVALO_DE_MONITORAMENTO):
+        self.num_consumers = max(1, num_consumers)
         self.monitor_interval = monitor_interval
         self.prefetch_count = prefetch_count
-        self.task_level = task_level
         self.filename = filename
         self.consumers: List[consumer.Consumer] = []
         self.consumer_threads:List[Thread] = []
         self.monitor_thread = None
+        self.flush_thread = None
+        self.target_thread = None
         self.running = False
         self.processo = psutil.Process(os.getpid())
         self.data = []
+        self.data_lock = Lock()
+        self.target_quantity_message = TARGET_MESSAGES_SEQUENCE[6]
+        self.target_index = 0
+        self.policy = BaseMessageQuantityPolicy(self.target_quantity_message)
+        self.count = 0
+        
 
 
     def start_consumers(self):
         self.running = True
 
-        for i in range(self.num_consumers):
-            consumidor = consumer.Consumer(id=i, prefetch_count=self.prefetch_count, task_level=self.task_level)
-            thread = Thread(
-                target=consumidor.start_consuming,
-                daemon=True,
-                name=f"consumer-thread-{i}"
-            ) 
-        
-            self.consumers.append(consumidor)
-            self.consumer_threads.append(thread)
+        # Start only one consumer (monitoring focuses on the first consumer)
+       
+        consumidor = consumer.Consumer(id=0, prefetch_count=self.prefetch_count)
+        thread = Thread(
+            target=consumidor.start_consuming,
+            daemon=True,
+            name="consumer-thread-0"
+        )
 
-            thread.start()
-        
-        
+        self.consumers.append(consumidor)
+        self.consumer_threads.append(thread)
+
+        thread.start()
+
+        # Monitor loop: collects metrics periodically
         self.monitor_thread = Thread(
             target=self.monitor_loop,
             daemon=True,
@@ -51,93 +69,109 @@ class ConsumerManager:
         )
         self.monitor_thread.start()
 
+        # Flush thread: persists collected metrics to CSV every CSV_FLUSH_INTERVAL seconds
+        self.flush_thread = Thread(
+            target=self.flush_loop,
+            daemon=True,
+            name="csv-flush"
+        )
+        self.flush_thread.start()
+
     
     def save_data_in_csv(self):
-        try:
-            with open(self.filename, 'x', newline='') as f:
+        # Writes any queued metrics to CSV (append). Ensures header exists.
+        with self.data_lock:
+            if not self.data:
+                return
+            file_exists = os.path.exists(self.filename)
+            with open(self.filename, 'a', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow([
-                    "timestamp", "qtd_mensagens", "avg_proc", "p95_proc", "p99_proc", 
-                    "avg_queue", "p95_queue", "p99_queue", "cpu_global", "ram_global", 
-                    "cpu_processo", "ram_processo_mb", "prefetch_count"
-                ])
+                if not file_exists:
+                    writer.writerow([
+                       "qtd_mensagens", "avg_proc", "avg_queue",
+                        "cpu_global", "ram_global", "cpu_processo", "ram_processo_mb", "prefetch_count", "decisao", "target_quantity_message"
+                    ])
                 for linha in self.data:
                     writer.writerow(linha)
-                    
-                self.data.clear() # Limpa os dados após salvar
-        except FileExistsError:
-            pass
-        
+                self.data.clear()
+
+
+    def flush_loop(self):
+        while self.running:
+            time.sleep(CSV_FLUSH_INTERVAL)
+            try:
+                self.save_data_in_csv()
+            except Exception as e:
+                print(f"[Flush] Erro ao gravar CSV: {e}")
+
+
+    def target_loop(self):
+        self.target_index = randint(0, len(TARGET_MESSAGES_SEQUENCE) - 1)
+        self.target_quantity_message = TARGET_MESSAGES_SEQUENCE[self.target_index]
+        self.policy.set_target_quantity_message(self.target_quantity_message)
     
-                
+
                 
     def monitor_loop(self):
-        while self.running:
-            time.sleep(self.monitor_interval)
-            
-            # Coleta os dados: [0] é processamento  [1] é tempo de vida/fila
-            if len(self.consumers) > 0:
-                dados = self.consumers[0].get_data()
-                qtd_mensagens = len(dados)
-            
-            if qtd_mensagens > 0:
-                tempos_procesamento = [d[0] for d in dados]
-                tempos_total = [d[1] for d in dados] #Tempo de vida total da mensagem
+        # Keep monitor thread alive permanently; handle exceptions and continue
+        while True:
+            try:
+                time.sleep(self.monitor_interval)
+                self.count += 1
+                if self.count % 12 == 0: # Change target every 3 monitor intervals (example logic)
+                    self.target_loop()
+                if self.count % 12 == 0: # Save to CSV every 5 monitor intervals (example logic)
+                    self.save_data_in_csv()
+                # Collect metrics from the first consumer only
+                qtd_mensagens = 0
+                dados = []
+                if len(self.consumers) > 0:
+                    dados = self.consumers[0].get_data()
+                    qtd_mensagens = len(dados)
 
-                # Médias
-                avg_processamento = sum(tempos_procesamento) / qtd_mensagens
-                avg_total = sum(tempos_total) / qtd_mensagens
+                if qtd_mensagens > 0:
+                    tempos_procesamento = [d[0] for d in dados]
+                    tempos_total = [d[1] for d in dados]
 
-                # Percentis P95 e P99
-                p95_processamento = self.calcular_percentil(tempos_procesamento, 95)
-                p99_processamento = self.calcular_percentil(tempos_procesamento, 99)
-                
-                p95_total = self.calcular_percentil(tempos_total, 95)
-                p99_total = self.calcular_percentil(tempos_total, 99)
-            else:
-                avg_processamento = p95_processamento = p99_processamento = 0
-                avg_total = p95_total = p99_total = 0
+                    avg_processamento = sum(tempos_procesamento) / qtd_mensagens
+                    avg_total = sum(tempos_total) / qtd_mensagens
+                else:
+                    avg_processamento = 0
+                    avg_total = 0
 
-            # 2. Recursos da Máquina
-            pc_cpu, pc_ram, process_cpu, process_ram = self.obter_consumo_recursos()
+                # System resources
+                pc_cpu, pc_ram, process_cpu, process_ram = self.obter_consumo_recursos()
 
-            # 3. Registro no Arquivo (Append mode 'a')
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            linha = [
-                timestamp, qtd_mensagens, 
-                round(avg_processamento, 10), round(p95_processamento, 10), round(p99_processamento, 10),
-                round(avg_total, 10), round(p95_total, 10), round(p99_total, 10),
-                pc_cpu, pc_ram, process_cpu, round(process_ram, 2), self.prefetch_count
-            ]
 
-            self.data.append(linha)
+                ajuste = 0
+                if self.running:
+                    ajuste = self.policy.decide(dados)
+                    if ajuste != 0:
+                        self.set_new_prefetch_counts(id=0, ajuste=ajuste)
 
-    
+                linha = [ 
+                    qtd_mensagens,
+                    round(avg_processamento, 10),
+                    round(avg_total, 10),
+                    pc_cpu,
+                    pc_ram,
+                    process_cpu,
+                    round(process_ram, 2),
+                    self.prefetch_count,
+                    ajuste,
+                    self.target_quantity_message
+                ]
 
-    def calcular_percentil(self, lista, percentil):
-        if not lista:
-            return 0
-        lista_ordenada = sorted(lista)
-        indice = (percentil / 100) * (len(lista_ordenada) - 1)
-        baixo = math.floor(indice)
-        alto = math.ceil(indice)
-        if baixo == alto:
-            return lista_ordenada[int(indice)]
-      
-        d = indice - baixo
-        return lista_ordenada[baixo] * (1 - d) + lista_ordenada[alto] * d
+                with self.data_lock:
+                    self.data.append(linha)
 
-        
-    def snapshot_metrics(self)->dict:
-        metrics = {}
-        for consumer in self.consumers:
-            if consumer.id not in metrics:
-                metrics[consumer.id] = []
-            dados = consumer.get_data()
-            print(f"Snapshot Consumer {consumer.id}: {dados}")
-            metrics[consumer.id].append(dados)
-
-        return metrics
+                # Log to console for visibility
+                print(f" msgs={qtd_mensagens} | prefetch={self.consumers[0].prefetch_count} | ajuste={ajuste}")
+             
+            except Exception as e:
+                print(f"[Monitor] erro inesperado: {e}")
+                # continue loop to keep thread alive
+                continue
         
         
     def stop(self):
@@ -149,14 +183,25 @@ class ConsumerManager:
         print("[Manager] Aguardando encerramento das threads dos consumidores...")
         for t in self.consumer_threads:
             t.join(timeout=15) # Espera as threads morrerem sozinhas
-        
+        # Aguarda threads auxiliares
+        if self.monitor_thread is not None:
+            self.monitor_thread.join(timeout=5)
+        if self.flush_thread is not None:
+            self.flush_thread.join(timeout=5)
+        if self.target_thread is not None:
+            self.target_thread.join(timeout=5)
+
         # Limpa as referências para o próximo ciclo
         self.consumers = []
         self.consumer_threads = []
     
     
-    def set_new_prefetch_counts(self, id:int, new_pc:int):
-        self.consumers[id].set_new_prefetch_count(new_pc)
+    def set_new_prefetch_counts(self, id:int, ajuste:int):
+        # Apply ajuste to consumer and update manager's tracked prefetch
+        self.consumers[id].set_new_prefetch_count(ajuste)
+        # reflect optimistic update
+        self.prefetch_count = max(1, self.prefetch_count + ajuste)
+
     
     
     def get_consumers(self):
@@ -175,67 +220,25 @@ class ConsumerManager:
         
         
 def iniciar_orquestracao():
-    # Read orchestrator configuration from environment with sensible defaults
-    prefetch_inicial = int(os.getenv('PREFETCH_INICIAL', '1'))
-    prefetch_final = int(os.getenv('PREFETCH_FINAL', '30'))
-    tempo_experimento_segundos = int(os.getenv('TEMPO_EXPERIMENTO_SEGUNDOS', '3600'))
-    pausa_entre_ciclos = int(os.getenv('PAUSA_ENTRE_CICLOS', '300'))
-    task_level = int(os.getenv('TASK_LEVEL', '1'))
-    monitor_interval = int(os.getenv('MONITOR_INTERVAL', '5'))
-    datasets_dir = os.getenv('DATASETS_DIR', 'datasets')
-    os.makedirs(datasets_dir, exist_ok=True)
-    print("--- INICIANDO BATERIA DE EXPERIMENTOS (1 a 30) ---")
+    
+    # 1. Instancia o Manager para o prefetch específico
+    manager = ConsumerManager(
+        prefetch_count=PREFETCH_INICIAL,
+        filename=DATASET_ARQUIVO,
+        monitor_interval=INTERVALO_DE_MONITORAMENTO
+    )
+    
+    # 2. Inicia os consumidores e o monitoramento
+    manager.start_consumers()
 
-    for prefetch_atual in range(prefetch_inicial, prefetch_final + 1):
-        nome_arquivo = os.path.join(datasets_dir, f"PC_{prefetch_atual}_TASK_{task_level}.csv")
-        
-        print(f"\n" + "="*50)
-        print(f"[EXPERIMENTO] Iniciando Ciclo {prefetch_atual}/30")
-        print(f"[EXPERIMENTO] Prefetch: {prefetch_atual}")
-        print(f"[EXPERIMENTO] Arquivo: {nome_arquivo}")
-        print(f"[EXPERIMENTO] Tempo(s): {tempo_experimento_segundos}")
-        print(f"[EXPERIMENTO] Pausa(s): {pausa_entre_ciclos}")
-        print("="*50)
-
-        # 1. Instancia o Manager para o prefetch específico
-        manager = ConsumerManager(
-            prefetch_count=prefetch_atual, 
-            filename=nome_arquivo,
-            monitor_interval=monitor_interval
-        )
-        
-        # 2. Inicia os consumidores e o monitoramento
-        manager.start_consumers()
-
-        try:
-            time.sleep(tempo_experimento_segundos)
-        except KeyboardInterrupt:
-            print("\n[AVISO] Orquestração interrompida pelo usuário.")
-            manager.stop()
-            break
-
-        # 4. Finaliza o ciclo atual
-        print(f"[INFO] Finalizando experimento de prefetch {prefetch_atual}...")
+    # Mantém a thread principal viva enquanto o manager estiver rodando.
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("[Manager] Interrupção recebida, encerrando...")
         manager.stop()
-        manager.save_data_in_csv() # 
-        
-        if prefetch_atual < prefetch_final:
-            print(f"[PAUSA] Aguardando {pausa_entre_ciclos} segundos para estabilização do sistema...")
-            time.sleep(pausa_entre_ciclos)
 
-    print("\n" + "!"*50)
-    print("BATERIA DE EXPERIMENTOS CONCLUÍDA COM SUCESSO!")
-    print("!"*50)
 
 if __name__ == "__main__":
     iniciar_orquestracao()
-
-#if __name__ == "__main__":
- #   manager = ConsumerManager(num_consumers=1, monitor_interval=5)
-  #  manager.start_consumers()
-
-   # try:
-    #    while True:
-     #       time.sleep(1)
-    #except KeyboardInterrupt:
-     #   manager.stop()

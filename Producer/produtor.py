@@ -14,7 +14,7 @@ load_dotenv()
 
 class Produtor():
 
-    def __init__(self, time_sleep=0.01, mode="skewed", constant_task=2):
+    def __init__(self, time_sleep=0.01, mode="skewed", constant_task=1):
         self.time_sleep = float(time_sleep)
         self.mode = mode
         self.constant_task = int(constant_task)
@@ -83,7 +83,7 @@ def _parse_args():
     parser = argparse.ArgumentParser(description="Produtor de mensagens RabbitMQ com modos de envio")
     parser.add_argument("--mode", choices=["constant", "skewed", "balanced"], default="constant",
                         help="Modo de execução: constant (sempre mesma tarefa), skewed (70/20/10), balanced (igual)")
-    parser.add_argument("--task", type=int, choices=[1, 2, 3], default=2,
+    parser.add_argument("--task", type=int, choices=[1, 2, 3], default=1,
                         help="Tarefa a enviar quando --mode constant é usada")
     parser.add_argument("--sleep", type=float, default=0.01,
                         help="Tempo de espera (segundos) entre envios")
