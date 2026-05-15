@@ -18,7 +18,7 @@ class Consumer:
         self.password = os.getenv("RABBITMQ_PASS")  
         credentials = pika.PlainCredentials(self.user, self.password)
 
-        self.executor = ThreadPoolExecutor(max_workers=2)
+        self.executor = ThreadPoolExecutor(max_workers=25)
         parametros = pika.ConnectionParameters(
             host=self.host, 
             credentials=credentials

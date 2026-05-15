@@ -41,6 +41,31 @@ class ConsumerManager:
         self.target_index = 0
         self.policy = BaseMessageQuantityPolicy(self.target_quantity_message)
         self.count = 0
+
+
+    def calcular_tempo_medio_vida_mensagens(self, dados):
+        # Cada item de `dados` usa [0]=inicio e [1]=fim; vida = fim - inicio.
+        quantidade = len(dados)
+        if quantidade == 0:
+            return 0.0
+
+        soma_tempo_vida = math.fsum(d[1] for d in dados)
+        return soma_tempo_vida / quantidade
+
+
+    def calcular_medias_intervalo(self, dados):
+        quantidade = len(dados)
+        if quantidade == 0:
+            return 0, 0.0, 0.0, 0.0
+
+        tempos_procesamento = [d[0] for d in dados]
+        tempos_total = [d[1] for d in dados]
+
+        avg_processamento = sum(tempos_procesamento) / quantidade
+        avg_total = sum(tempos_total) / quantidade
+        avg_tempo_vida = self.calcular_tempo_medio_vida_mensagens(dados)
+
+        return quantidade, avg_processamento, avg_total, avg_tempo_vida
         
 
 
@@ -89,7 +114,7 @@ class ConsumerManager:
                 if not file_exists:
                     writer.writerow([
                        "qtd_mensagens", "avg_proc", "avg_queue",
-                        "cpu_global", "ram_global", "cpu_processo", "ram_processo_mb", "prefetch_count", "decisao", "target_quantity_message"
+                        "avg_tempo_vida", "cpu_global", "ram_global", "cpu_processo", "ram_processo_mb", "prefetch_count", "decisao", "target_quantity_message"
                     ])
                 for linha in self.data:
                     writer.writerow(linha)
@@ -101,6 +126,7 @@ class ConsumerManager:
             time.sleep(CSV_FLUSH_INTERVAL)
             try:
                 self.save_data_in_csv()
+                self.set_new_prefetch_counts(id=0, ajuste=1) # Reaplica o prefetch atual para forçar o ajuste do consumidor
             except Exception as e:
                 print(f"[Flush] Erro ao gravar CSV: {e}")
 
@@ -109,6 +135,45 @@ class ConsumerManager:
         self.target_index = randint(0, len(TARGET_MESSAGES_SEQUENCE) - 1)
         self.target_quantity_message = TARGET_MESSAGES_SEQUENCE[self.target_index]
         self.policy.set_target_quantity_message(self.target_quantity_message)
+
+
+    def monitor_tick(self):
+        time.sleep(self.monitor_interval)
+
+        # Collect metrics from the first consumer only
+        dados = []
+        if len(self.consumers) > 0:
+            dados = self.consumers[0].get_data()
+        qtd_mensagens, avg_processamento, avg_total, avg_tempo_vida = self.calcular_medias_intervalo(dados)
+
+        # System resources
+        pc_cpu, pc_ram, process_cpu, process_ram = self.obter_consumo_recursos()
+
+        ajuste = 0
+        if self.running:
+            ajuste = self.policy.decide(dados)
+            if ajuste != 0:
+                self.set_new_prefetch_counts(id=0, ajuste=ajuste)
+
+        linha = [
+            qtd_mensagens,
+            round(avg_processamento, 10),
+            round(avg_total, 10),
+            round(avg_tempo_vida, 10),
+            pc_cpu,
+            pc_ram,
+            process_cpu,
+            round(process_ram, 2),
+            self.consumers[0].prefetch_count,
+            ajuste,
+            self.target_quantity_message
+        ]
+
+        with self.data_lock:
+            self.data.append(linha)
+
+        # Log to console for visibility
+        print(f" msgs={qtd_mensagens} | prefetch={self.consumers[0].prefetch_count} | ajuste={ajuste}")
     
 
                 
@@ -116,57 +181,7 @@ class ConsumerManager:
         # Keep monitor thread alive permanently; handle exceptions and continue
         while True:
             try:
-                time.sleep(self.monitor_interval)
-                self.count += 1
-                if self.count % 12 == 0: # Change target every 3 monitor intervals (example logic)
-                    self.target_loop()
-                if self.count % 12 == 0: # Save to CSV every 5 monitor intervals (example logic)
-                    self.save_data_in_csv()
-                # Collect metrics from the first consumer only
-                qtd_mensagens = 0
-                dados = []
-                if len(self.consumers) > 0:
-                    dados = self.consumers[0].get_data()
-                    qtd_mensagens = len(dados)
-
-                if qtd_mensagens > 0:
-                    tempos_procesamento = [d[0] for d in dados]
-                    tempos_total = [d[1] for d in dados]
-
-                    avg_processamento = sum(tempos_procesamento) / qtd_mensagens
-                    avg_total = sum(tempos_total) / qtd_mensagens
-                else:
-                    avg_processamento = 0
-                    avg_total = 0
-
-                # System resources
-                pc_cpu, pc_ram, process_cpu, process_ram = self.obter_consumo_recursos()
-
-
-                ajuste = 0
-                if self.running:
-                    ajuste = self.policy.decide(dados)
-                    if ajuste != 0:
-                        self.set_new_prefetch_counts(id=0, ajuste=ajuste)
-
-                linha = [ 
-                    qtd_mensagens,
-                    round(avg_processamento, 10),
-                    round(avg_total, 10),
-                    pc_cpu,
-                    pc_ram,
-                    process_cpu,
-                    round(process_ram, 2),
-                    self.prefetch_count,
-                    ajuste,
-                    self.target_quantity_message
-                ]
-
-                with self.data_lock:
-                    self.data.append(linha)
-
-                # Log to console for visibility
-                print(f" msgs={qtd_mensagens} | prefetch={self.consumers[0].prefetch_count} | ajuste={ajuste}")
+                self.monitor_tick()
              
             except Exception as e:
                 print(f"[Monitor] erro inesperado: {e}")
