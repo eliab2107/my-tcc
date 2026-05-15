@@ -18,7 +18,7 @@ class Consumer:
         self.password = os.getenv("RABBITMQ_PASS")  
         credentials = pika.PlainCredentials(self.user, self.password)
 
-        self.executor = ThreadPoolExecutor(max_workers=40)
+        self.executor = ThreadPoolExecutor(max_workers=2)
         parametros = pika.ConnectionParameters(
             host=self.host, 
             credentials=credentials
@@ -92,19 +92,20 @@ class Consumer:
     def process_message(self, data):
         network_url = "https://www.google.com"
         if not data.get("task_level") or data.get("task_level") == 1:
-            time.sleep(0.1)
+            time.sleep(0.01)
             
             
         elif data.get("task_level") == 2:
-             for _ in range(self.task_level * 1_000_0):
-                _ = math.sqrt(12345.6789) * math.sin(0.5)
+            # for _ in range(self.task_level * 1_000_0):
+             #   _ = math.sqrt(12345.6789) * math.sin(0.5)
+            time.sleep(0.01)
                 
         elif data.get("task_level") == 3: 
-            try:
-                r = requests.get(network_url, timeout=10) 
-            except Exception as e:
-                print(f"<- Erro de rede: {e}") 
-                
+            #try:
+             #   r = requests.get(network_url, timeout=10) 
+            #except Exception as e:
+             #   print(f"<- Erro de rede: {e}") 
+            time.sleep(0.01)
 
     def stop(self):
         """Chamado pela Thread do Manager"""

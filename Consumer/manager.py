@@ -18,7 +18,7 @@ INTERVALO_DE_MONITORAMENTO = int(os.getenv("MONITOR_INTERVAL", 10))
 PREFETCH_INICIAL = int(os.getenv("PREFETCH_INICIAL", 4))
 CSV_FLUSH_INTERVAL = int(os.getenv("CSV_FLUSH_INTERVAL", 60))
 TARGET_CHANGE_INTERVAL = int(os.getenv("TARGET_CHANGE_INTERVAL", 60))
-DATASET_ARQUIVO = os.getenv("DATASET_ARQUIVO", "dataset.csv")
+DATASET_ARQUIVO = os.getenv("DATA_FILE", "dataset.csv")
 TARGET_MESSAGES_SEQUENCE = [1000, 1100, 1300, 1500,2000, 2500, 3000] # Example sequence of target message counts for dynamic policy
 
 
@@ -203,11 +203,6 @@ class ConsumerManager:
         self.prefetch_count = max(1, self.prefetch_count + ajuste)
 
     
-    
-    def get_consumers(self):
-        return self.consumers
-
-    
     def obter_consumo_recursos(self):
         cpu_global = psutil.cpu_percent(interval=None) 
         ram_global = psutil.virtual_memory().percent    
@@ -233,7 +228,7 @@ def iniciar_orquestracao():
 
     # Mantém a thread principal viva enquanto o manager estiver rodando.
     try:
-        while True:
+        while manager.running:
             time.sleep(1)
     except KeyboardInterrupt:
         print("[Manager] Interrupção recebida, encerrando...")

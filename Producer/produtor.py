@@ -55,7 +55,6 @@ class Produtor():
                 task = self._next_task()
 
                 message_body = {
-                    "id": self.counter,
                     "conteudo": f"Mensagem {self.counter}",
                     "cep": "01001-000",
                     "date_created": time.time(),
@@ -68,8 +67,7 @@ class Produtor():
                     body=json.dumps(message_body).encode("utf-8"),
                 )
 
-                self.counter += 1
-                time.sleep(self.time_sleep)
+                #time.sleep(self.time_sleep)
         except KeyboardInterrupt:
             print("[PUBLISHER] Interrompido pelo usuário, fechando conexão...")
         finally:
