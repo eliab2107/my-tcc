@@ -14,10 +14,10 @@ from policies.policies import BaseMessageQuantityPolicy
 # Load environment variables from .env
 load_dotenv()
 # Constants / configurable via environment
-INTERVALO_DE_MONITORAMENTO = int(os.getenv("MONITOR_INTERVAL", 10))
-PREFETCH_INICIAL = int(os.getenv("PREFETCH_INICIAL", 4))
-CSV_FLUSH_INTERVAL = int(os.getenv("CSV_FLUSH_INTERVAL", 60))
-TARGET_CHANGE_INTERVAL = int(os.getenv("TARGET_CHANGE_INTERVAL", 60))
+INTERVALO_DE_MONITORAMENTO = int(os.getenv("MONITOR_INTERVAL", 5))
+PREFETCH_INICIAL = int(os.getenv("PREFETCH_INICIAL", 1))
+CSV_FLUSH_INTERVAL = int(os.getenv("CSV_FLUSH_INTERVAL", 120))
+
 DATASET_ARQUIVO = os.getenv("DATA_FILE", "dataset.csv")
 TARGET_MESSAGES_SEQUENCE = [1000, 1100, 1300, 1500,2000, 2500, 3000] # Example sequence of target message counts for dynamic policy
 
@@ -94,14 +94,6 @@ class ConsumerManager:
         )
         self.monitor_thread.start()
 
-        # Flush thread: persists collected metrics to CSV every CSV_FLUSH_INTERVAL seconds
-        self.flush_thread = Thread(
-            target=self.flush_loop,
-            daemon=True,
-            name="csv-flush"
-        )
-        self.flush_thread.start()
-
     
     def save_data_in_csv(self):
         # Writes any queued metrics to CSV (append). Ensures header exists.
@@ -131,6 +123,11 @@ class ConsumerManager:
                 print(f"[Flush] Erro ao gravar CSV: {e}")
 
 
+    def flush(self):
+        # Flushes data and reapplies current prefetch to trigger consumer adjustment
+        self.save_data_in_csv()
+        self.set_new_prefetch_counts(id=0, ajuste=1) # Reaplica o prefetch atual para forçar o ajuste do consumidor
+
     def target_loop(self):
         self.target_index = randint(0, len(TARGET_MESSAGES_SEQUENCE) - 1)
         self.target_quantity_message = TARGET_MESSAGES_SEQUENCE[self.target_index]
@@ -139,7 +136,9 @@ class ConsumerManager:
 
     def monitor_tick(self):
         time.sleep(self.monitor_interval)
-
+        self.count +=1 
+        if self.count % 24 == 0: 
+            self.flush()
         # Collect metrics from the first consumer only
         dados = []
         if len(self.consumers) > 0:
@@ -173,7 +172,7 @@ class ConsumerManager:
             self.data.append(linha)
 
         # Log to console for visibility
-        print(f" msgs={qtd_mensagens} | prefetch={self.consumers[0].prefetch_count} | ajuste={ajuste}")
+        #print(f" msgs={qtd_mensagens} | prefetch={self.consumers[0].prefetch_count} | ajuste={ajuste}")
     
 
                 
