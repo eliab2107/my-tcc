@@ -197,14 +197,14 @@ class ConsumerManager:
 
         print("[Manager] Aguardando encerramento das threads dos consumidores...")
         for t in self.consumer_threads:
-            t.join(timeout=15) # Espera as threads morrerem sozinhas
+            t.join(timeout=30) # Espera as threads morrerem sozinhas
         # Aguarda threads auxiliares
         if self.monitor_thread is not None:
-            self.monitor_thread.join(timeout=5)
+            self.monitor_thread.join(timeout=10)
         if self.flush_thread is not None:
-            self.flush_thread.join(timeout=5)
+            self.flush_thread.join(timeout=10)
         if self.target_thread is not None:
-            self.target_thread.join(timeout=5)
+            self.target_thread.join(timeout=10)
 
         # Limpa as referências para o próximo ciclo
         self.consumers = []

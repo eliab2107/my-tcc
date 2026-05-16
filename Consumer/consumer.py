@@ -18,7 +18,7 @@ class Consumer:
         self.password = os.getenv("RABBITMQ_PASS")  
         credentials = pika.PlainCredentials(self.user, self.password)
 
-        self.executor = ThreadPoolExecutor(max_workers=25)
+        self.executor = ThreadPoolExecutor(max_workers=5)
         parametros = pika.ConnectionParameters(
             host=self.host, 
             credentials=credentials
@@ -92,7 +92,10 @@ class Consumer:
     def process_message(self, data):
         network_url = "https://www.google.com"
         if not data.get("task_level") or data.get("task_level") == 1:
-            time.sleep(0.01)
+            #Delay de rede
+            time.sleep(0.05)
+            #Delay de CPU
+            time.sleep(0.005)
             
             
         elif data.get("task_level") == 2:
