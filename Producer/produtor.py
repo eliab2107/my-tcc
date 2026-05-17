@@ -17,8 +17,8 @@ LOAD_PROFILES = [
     (0.001, "alta"),
     (0.003, "media-alta"),
     (0.005, "media"),
-    (0.010, "media-baixa"),
-    (0.020, "baixa"),
+    (0.009, "media-baixa"),
+    (0.10, "baixa"),
     (0.005, "media"),        # sobe gradualmente de volta
     (0.001, "alta"),
 ]

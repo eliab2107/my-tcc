@@ -8,21 +8,20 @@ import psutil
 from threading import Thread, Lock
 from typing import List
 from dotenv import load_dotenv
-
-from consumer import Consumer
+from Consumer.consumer import Consumer
 from policies.policies import BaseMessageQuantityPolicy
 
 load_dotenv()
 
 INTERVALO_DE_MONITORAMENTO = int(os.getenv("MONITOR_INTERVAL", 5))
 PREFETCH_INICIAL           = int(os.getenv("PREFETCH_INICIAL", 1))
-CSV_FLUSH_INTERVAL         = int(os.getenv("CSV_FLUSH_INTERVAL", 60))
+CSV_FLUSH_INTERVAL         = int(os.getenv("CSV_FLUSH_INTERVAL", 240))
 DATASET_ARQUIVO            = os.getenv("DATA_FILE", "dataset.csv")
 
 # Sequência de targets que se alternam durante a coleta para
 # aumentar a cobertura do espaço de estados
-TARGET_MESSAGES_SEQUENCE = [1000, 1100, 1300, 1500, 2000, 2500, 3000]
-TARGET_CHANGE_INTERVAL   = int(os.getenv("TARGET_CHANGE_INTERVAL", 300))  # segundos
+TARGET_MESSAGES_SEQUENCE = [100, 210, 300, 50, 150, 500, 400]
+TARGET_CHANGE_INTERVAL   = int(os.getenv("TARGET_CHANGE_INTERVAL", 100000))  # segundos
 
 # Probabilidade de perturbar o prefetch aleatoriamente em cada tick,
 # para explorar estados que a política sozinha não exploraria
@@ -30,7 +29,7 @@ PERTURBATION_PROB  = float(os.getenv("PERTURBATION_PROB", 0.20))
 PERTURBATION_DELTA = int(os.getenv("PERTURBATION_DELTA", 5))
 
 # API de management do RabbitMQ para leitura do tamanho da fila
-RABBITMQ_API_URL  = os.getenv("RABBITMQ_API_URL", "http://localhost:15672")
+RABBITMQ_API_URL  = os.getenv("RABBITMQ_API_URL", f"http://{os.getenv('RABBITMQ_HOST', 'localhost')}:15672")
 RABBITMQ_API_USER = os.getenv("RABBITMQ_USER", "guest")
 RABBITMQ_API_PASS = os.getenv("RABBITMQ_PASS", "guest")
 RABBITMQ_QUEUE    = os.getenv("RABBITMQ_QUEUE", "fila_teste")
@@ -129,7 +128,7 @@ class ConsumerManager:
             self.target_index = (self.target_index + 1) % len(TARGET_MESSAGES_SEQUENCE)
             self.target_quantity_message = TARGET_MESSAGES_SEQUENCE[self.target_index]
             self.policy.set_target_quantity_message(self.target_quantity_message)
-            print(f"[Manager] Novo target: {self.target_quantity_message}")
+           # print(f"[Manager] Novo target: {self.target_quantity_message}")
 
     # ------------------------------------------------------------------
     # Loop de monitoramento
@@ -163,7 +162,7 @@ class ConsumerManager:
             # Perturbação aleatória para explorar o espaço de estados
             if random.random() < PERTURBATION_PROB:
                 ajuste = random.choice([-PERTURBATION_DELTA, PERTURBATION_DELTA])
-                print(f"[Monitor] Perturbação aleatória: {ajuste:+d}")
+                #print(f"[Monitor] Perturbação aleatória: {ajuste:+d}")
             else:
                 ajuste = self.policy.decide(dados)
 
@@ -197,10 +196,7 @@ class ConsumerManager:
         with self._data_lock:
             self._data.append(linha)
 
-        print(
-            f"[Monitor] tick={self._tick_count} | msgs={n} | fila_broker={fila_broker} "
-            f"| prefetch={prefetch_atual} | ajuste={ajuste:+d} | target={self.target_quantity_message}"
-        )
+        #print(          f"[Monitor] tick={self._tick_count} | msgs={n} | fila_broker={fila_broker}  prefetch={prefetch_atual} | ajuste={ajuste:+d} | target={self.target_quantity_message}")
 
     # ------------------------------------------------------------------
     # Ajuste de prefetch
@@ -245,7 +241,7 @@ class ConsumerManager:
             if not file_exists:
                 writer.writerow(CSV_HEADER)
             writer.writerows(rows)
-        print(f"[Flush] {len(rows)} linhas gravadas em {self.filename}")
+        #(f"[Flush] {len(rows)} linhas gravadas em {self.filename}")
 
     # ------------------------------------------------------------------
     # Encerramento
