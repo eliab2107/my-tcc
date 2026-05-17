@@ -32,10 +32,9 @@ class BaseMessageQuantityPolicy():
 
     def decide(self, data) -> Any:
         quantity_message = len(data)
-        print(f"Quantity of messages: {quantity_message} | target: {self.target_quantity_message}")
-        if quantity_message > self.target_quantity_message * 1.1:
-            return 0
-        elif quantity_message < self.target_quantity_message * 0.9:
-            return 0
+        if quantity_message > self.target_quantity_message * 1.2:
+            return -1
+        elif quantity_message < self.target_quantity_message * 0.8:
+            return 1
         else:   
             return 0
