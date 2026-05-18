@@ -3,7 +3,8 @@ from typing import Any, Dict, List
 from execution.clients.consumer import Consumer
 from DTOs.decision import Decision
 from DTOs.metrics_dtos import AllHistory
-
+from policies.feature_builder import FeatureBuilder
+import joblib
 
 class FirstPolicy(BaseDecisionPolicy):
     def decide(self, all_history: AllHistory) -> List[Decision]:
@@ -31,10 +32,131 @@ class BaseMessageQuantityPolicy():
         print(f"[Policy] Novo target de mensagens definido: {self.target_quantity_message}")
 
     def decide(self, data) -> Any:
-        quantity_message = len(data)
+        quantity_message = data[1] # Índice 1: qtd_mensagens_processadas
         if quantity_message > self.target_quantity_message * 1.2:
             return -1
         elif quantity_message < self.target_quantity_message * 0.8:
             return 1
         else:   
             return 0
+        
+        
+class BaseSystemStatusPolicy():
+    def __init__(self, target: int = 400):
+        self.target = target
+
+    def decide(self, dados, estado) -> int:
+        """
+        dados:  lista de métricas do consumer (retorno de get_data())
+        estado: dict com fila_broker, delta_fila, prefetch_count, ultima_acao
+        """
+        n = len(dados)
+        if n == 0:
+            return 0
+
+        erro = (n - self.target) / self.target  # erro_relativo
+
+        fila_crescendo  = estado.get("delta_fila", 0) > 0
+        vazao_caindo    = estado.get("delta_msgs", 0) < 0
+        acabou_de_agir  = abs(estado.get("ultima_acao", 0)) > 0
+        fila_critica    = estado.get("fila_broker", 0) > self.target * 3
+
+        # Urgente: fora da banda E situação piorando
+        if erro < -0.1 and (fila_crescendo or vazao_caindo):
+            return 1
+        if erro > 0.1:
+            return -1
+
+        # Preventivo: dentro da banda mas tendência ruim
+        if erro < -0.05 and vazao_caindo and not acabou_de_agir:
+            return 1
+
+        # Pressão de fila crítica mesmo com vazão ok
+        if fila_critica and not acabou_de_agir:
+            return 1
+
+        return 0
+    
+    
+class RandomForestBaseInQtdMsgPolicy():
+    def __init__(self, model_path: str):
+        self.model       = joblib.load(model_path)
+        self._builder    = FeatureBuilder()
+        self._prev_target = None
+
+    def decide(self, raw: list) -> int:
+        mudou_target = (
+            self._prev_target is not None and
+            raw[FeatureBuilder.I_TARGET] != self._prev_target
+        )
+        self._prev_target = raw[FeatureBuilder.I_TARGET]
+
+        snapshot = self._builder.build(raw, mudou_target=mudou_target)
+        X        = self._builder.to_dataframe(snapshot)
+        resp     = self.model.predict(X)[0]
+        return int(resp)
+    
+class XGBoostPolicyBaseInQtdMsgPolicy():
+    def __init__(self, model_path: str, encoder_path: str):
+        self.model       = joblib.load(model_path)
+        self.encoder     = joblib.load(encoder_path)
+        self._builder    = FeatureBuilder()
+        self._prev_target = None 
+        
+    def decide(self, raw: list) -> int:
+        mudou_target = (
+            self._prev_target is not None and
+            raw[FeatureBuilder.I_TARGET] != self._prev_target
+        )
+        self._prev_target = raw[FeatureBuilder.I_TARGET]
+
+        snapshot = self._builder.build(raw, mudou_target=mudou_target)
+        data_formated_to_model = self._builder.to_dataframe(snapshot)
+        data_scaled_to_model = self.encoder.transform(data_formated_to_model)
+
+        return int(self.model.predict(data_scaled_to_model)[0])
+    
+class MLPBaseInQtdMsgPolicy():
+    def __init__(self, model_path: str, scaler_path: str):
+        self.model       = joblib.load(model_path)
+        self.scaler      = joblib.load(scaler_path)
+        self._builder    = FeatureBuilder()
+        self._prev_target = None 
+        
+    def decide(self, raw: list) -> int:
+        mudou_target = (
+            self._prev_target is not None and
+            raw[FeatureBuilder.I_TARGET] != self._prev_target
+        )
+        self._prev_target = raw[FeatureBuilder.I_TARGET]
+
+        snapshot = self._builder.build(raw, mudou_target=mudou_target)
+        data_formated_to_model = self._builder.to_dataframe(snapshot)
+        data_scaled_to_model = self.scaler.transform(data_formated_to_model)
+
+        return int(self.model.predict(data_scaled_to_model)[0])
+
+class MLPolicy():
+    def __init__(self, model_path: str, scaler_path: str = None):
+        self.model       = joblib.load(model_path)
+        self._builder    = FeatureBuilder()
+        if scaler_path:
+            self.scaler      = joblib.load(scaler_path)
+        self._prev_target = None 
+        
+    def decide(self, raw: list) -> int:
+        mudou_target = (
+            self._prev_target is not None and
+            raw[FeatureBuilder.I_TARGET] != self._prev_target
+        )
+        self._prev_target = raw[FeatureBuilder.I_TARGET]
+
+        snapshot = self._builder.build(raw, mudou_target=mudou_target)
+        data_formated_to_model = self._builder.to_dataframe(snapshot)
+        
+        if hasattr(self, 'scaler'):
+            data_scaled_to_model = self.scaler.transform(data_formated_to_model)
+        else:
+            data_scaled_to_model = data_formated_to_model
+
+        return int(self.model.predict(data_scaled_to_model)[0])

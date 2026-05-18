@@ -1,0 +1,4 @@
+Esses modelos foram gerados a partir de um dataset construído em nuvem usando os 3 ec2, 
+um producer variavel e um manager com apenas um consumer e uma única thread.
+A politica usada foi a BaseMessageQuantityPolicy, os modelos apresentaram precisao acuracia e f1score iguais a 1
+o que gera suspeitas de que a politica era muito simples e com apenas duas features conseguia acertar 100% das vezes

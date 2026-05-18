@@ -9,8 +9,7 @@ from threading import Thread, Lock
 from typing import List
 from dotenv import load_dotenv
 from Consumer.consumer import Consumer
-from policies.policies import BaseMessageQuantityPolicy
-
+from policies.policies import BaseMessageQuantityPolicy, RandomForestBaseInQtdMsgPolicy
 load_dotenv()
 
 INTERVALO_DE_MONITORAMENTO = int(os.getenv("MONITOR_INTERVAL", 5))
@@ -63,6 +62,7 @@ CSV_HEADER = [
 class ConsumerManager:
     def __init__(
         self,
+        policy,
         filename: str = DATASET_ARQUIVO,
         prefetch_count: int = PREFETCH_INICIAL,
         monitor_interval: float = INTERVALO_DE_MONITORAMENTO,
@@ -70,6 +70,7 @@ class ConsumerManager:
         self.monitor_interval  = monitor_interval
         self.filename          = filename
         self._initial_prefetch = prefetch_count
+        self.policy            = policy
 
         self.consumers:        List[Consumer] = []
         self.consumer_threads: List[Thread]   = []
@@ -86,7 +87,6 @@ class ConsumerManager:
         # Política e target
         self.target_index            = 0
         self.target_quantity_message = TARGET_MESSAGES_SEQUENCE[self.target_index]
-        self.policy = BaseMessageQuantityPolicy(self.target_quantity_message)
 
         # Última ação registrada (para feature do dataset)
         self._last_action = 0
@@ -147,36 +147,50 @@ class ConsumerManager:
 
         # 1. Coleta métricas do consumer
         dados = self.consumers[0].get_data() if self.consumers else []
-        n, avg_proc, avg_latency = self._calcular_medias(dados)
+        qtd_mensagem_processadas, avg_proc, avg_latency = self._calcular_medias(dados)
 
         # 2. Tamanho da fila no broker (via API de management)
         fila_broker = self._get_queue_size()
 
         # 3. Estado atual do controlador
         prefetch_atual = self.consumers[0].prefetch_count
-        distancia      = n - self.target_quantity_message
-
-        # 4. Decisão de ajuste
+        distancia      = qtd_mensagem_processadas - self.target_quantity_message
+        # 4. Recursos
+        cpu_g, ram_g, cpu_p, ram_p = self._obter_recursos()
+        
+        # 5. Decisão de ajuste
+        dados_para_modelo =  [
+            round(timestamp, 3),
+            qtd_mensagem_processadas,
+            round(avg_proc,    8),
+            round(avg_latency, 8),
+            fila_broker,
+            prefetch_atual,
+            self._last_action,   # ação do tick anterior
+            self.target_quantity_message,
+            distancia,
+            cpu_g,
+            ram_g,
+            cpu_p,
+            round(ram_p, 2),         
+        ]
         ajuste = 0
         if self.running:
-            # Perturbação aleatória para explorar o espaço de estados
+          
             if random.random() < PERTURBATION_PROB:
                 ajuste = random.choice([-PERTURBATION_DELTA, PERTURBATION_DELTA])
-                #print(f"[Monitor] Perturbação aleatória: {ajuste:+d}")
+               
             else:
-                ajuste = self.policy.decide(dados)
+                ajuste = self.policy.decide(dados_para_modelo)
 
             if ajuste != 0:
                 self._ajustar_prefetch(consumer_id=0, ajuste=ajuste)
-
-        # 5. Recursos
-        cpu_g, ram_g, cpu_p, ram_p = self._obter_recursos()
 
         # 6. Monta linha do dataset
         linha = [
             self._tick_count,
             round(timestamp, 3),
-            n,
+            qtd_mensagem_processadas,
             round(avg_proc,    8),
             round(avg_latency, 8),
             fila_broker,
@@ -196,7 +210,6 @@ class ConsumerManager:
         with self._data_lock:
             self._data.append(linha)
 
-        #print(          f"[Monitor] tick={self._tick_count} | msgs={n} | fila_broker={fila_broker}  prefetch={prefetch_atual} | ajuste={ajuste:+d} | target={self.target_quantity_message}")
 
     # ------------------------------------------------------------------
     # Ajuste de prefetch
@@ -289,6 +302,7 @@ def iniciar_orquestracao() -> None:
         prefetch_count=PREFETCH_INICIAL,
         filename=DATASET_ARQUIVO,
         monitor_interval=INTERVALO_DE_MONITORAMENTO,
+        policy=RandomForestBaseInQtdMsgPolicy(model_path="C:\\Users\\eliab\\Documents\\tcc\\modelos\\modelos\\random_forest_model.joblib")
     )
     manager.start_consumers()
 
