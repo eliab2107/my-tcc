@@ -31,9 +31,9 @@ RABBITMQ_QUEUE    = os.getenv("RABBITMQ_QUEUE", "fila_teste")
 CENARIOS = {   
     
     "mudanca_target": {
-        "targets":         [100, 800, 200, 500, 350, 700],
-        "change_interval": 20,     # segundos
-        "duracao_min":     2,
+        "targets":         [400, 900, 1200],
+        "change_interval": 58,     # segundos
+        "duracao_min":     3,
     },
 }
 
@@ -365,11 +365,11 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
 
     EXPERIMENTOS = [
-        # (policy,                                                                                                              controlador,         cenario)
-        (BaseMessageQuantityPolicy(target_quantity_message=300),                                                                "heuristica_simples", "mudanca_target"),
-        (MLPolicy("modelos/BaseQtdMsg/mlp_model.joblib", "modelos/BaseQtdMsg/mlp_scaler.joblib"),                               "mlp",           "mudanca_target"),
-        (RandomForestBaseInQtdMsgPolicy("modelos/BaseQtdMsg/random_forest_model.joblib"),                                       "random_forest", "mudanca_target"),
-       # (XGBoostPolicyBaseInQtdMsgPolicy("modelos/BaseQtdMsg/xgboost_model.joblib", "modelos/BaseQtdMsg/label_encoder.joblib"), "xgboost",       "mudanca_target"),
+        # (policy,                                                                                        controlador,         cenario)
+        #(BaseMessageQuantityPolicy(target_quantity_message=300),                                        "heuristica_simples", "mudanca_target"),
+        #(MLPBaseInQtdMsgPolicy("modelos/BaseQtdMsg/mlp_model.joblib", "modelos/BaseQtdMsg/mlp_scaler.joblib"),        "mlp",           "mudanca_target"),
+        #(RandomForestBaseInQtdMsgPolicy("modelos/BaseQtdMsg/random_forest_model.joblib"),                                      "random_forest", "mudanca_target"),
+        (XGBoostPolicyBaseInQtdMsgPolicy("modelos/BaseQtdMsg/xgboost_model.joblib", "modelos\BaseQtdMsg\label_encoder.joblib" ), "xgboost",       "mudanca_target"),
         # Adicione os demais controladores seguindo o mesmo padrão
     ]
 

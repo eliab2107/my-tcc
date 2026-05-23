@@ -98,11 +98,11 @@ class RandomForestBaseInQtdMsgPolicy():
     
 class XGBoostPolicyBaseInQtdMsgPolicy():
     def __init__(self, model_path: str, encoder_path: str):
-        self.model       = joblib.load(model_path)
-        self.encoder     = joblib.load(encoder_path)
-        self._builder    = FeatureBuilder()
-        self._prev_target = None 
-        
+        self.model        = joblib.load(model_path)
+        self.label_encoder = joblib.load(encoder_path)
+        self._builder     = FeatureBuilder()
+        self._prev_target = None
+
     def decide(self, raw: list) -> int:
         mudou_target = (
             self._prev_target is not None and
@@ -111,10 +111,13 @@ class XGBoostPolicyBaseInQtdMsgPolicy():
         self._prev_target = raw[FeatureBuilder.I_TARGET]
 
         snapshot = self._builder.build(raw, mudou_target=mudou_target)
-        data_formated_to_model = self._builder.to_dataframe(snapshot)
-        data_scaled_to_model = self.encoder.transform(data_formated_to_model)
+        X = self._builder.to_dataframe(snapshot)
 
-        return int(self.model.predict(data_scaled_to_model)[0])
+        # XGBoost não precisa de scaler — envia direto
+        pred_encoded = self.model.predict(X)[0]
+
+        # Decodifica 0,1,2 → -1,0,1
+        return int(self.label_encoder.inverse_transform([int(pred_encoded)])[0])
     
 class MLPBaseInQtdMsgPolicy():
     def __init__(self, model_path: str, scaler_path: str):
