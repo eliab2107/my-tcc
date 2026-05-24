@@ -33,7 +33,7 @@ load_dotenv()
 # ------------------------------------------------------------------
 INTERVALO_DE_MONITORAMENTO = int(os.getenv("MONITOR_INTERVAL", 20))
 PREFETCH_INICIAL           = int(os.getenv("PREFETCH_INICIAL", 1))
-CSV_FLUSH_INTERVAL         = int(os.getenv("CSV_FLUSH_INTERVAL", 30))
+CSV_FLUSH_INTERVAL         = int(os.getenv("CSV_FLUSH_INTERVAL", 300))
 
 RABBITMQ_API_URL  = os.getenv("RABBITMQ_API_URL", f"http://{os.getenv('RABBITMQ_HOST', 'localhost')}:15672")
 RABBITMQ_API_USER = os.getenv("RABBITMQ_USER", "guest")
@@ -43,10 +43,10 @@ RABBITMQ_QUEUE    = os.getenv("RABBITMQ_QUEUE", "fila_teste")
 # ------------------------------------------------------------------
 # Configuração — modo coleta
 # ------------------------------------------------------------------
-TARGET_MESSAGES_SEQUENCE = [100, 210, 300, 50, 150, 500, 400]
-TARGET_CHANGE_INTERVAL   = int(os.getenv("TARGET_CHANGE_INTERVAL", 100000))
-PERTURBATION_PROB        = float(os.getenv("PERTURBATION_PROB", 0.20))
-PERTURBATION_DELTA       = int(os.getenv("PERTURBATION_DELTA", 5))
+TARGET_MESSAGES_SEQUENCE = [25, 190, 50, 100, 130, 160, 210, 75, 230, 250,]
+TARGET_CHANGE_INTERVAL   = int(os.getenv("TARGET_CHANGE_INTERVAL", 180))
+PERTURBATION_PROB        = float(os.getenv("PERTURBATION_PROB", 0.10))
+PERTURBATION_DELTA       = int(os.getenv("PERTURBATION_DELTA", 3))
 DATASET_ARQUIVO          = os.getenv("DATA_FILE", "dataset.csv")
 
 # ------------------------------------------------------------------
@@ -195,7 +195,7 @@ class ColetaManager:
             round(avg_proc,    8), round(avg_latency, 8),
             fila_broker, prefetch_atual,
             self._last_action, self.target_quantity_message,
-            distancia,
+            distancia, msgs_por_segundo,
         ]
 
         ajuste = 0

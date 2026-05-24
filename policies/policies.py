@@ -32,10 +32,10 @@ class BaseMessageQuantityPolicy():
         print(f"[Policy] Novo target de mensagens definido: {self.target_quantity_message}")
 
     def decide(self, data) -> Any:
-        quantity_message = data[1] # Índice 1: qtd_mensagens_processadas
-        if quantity_message > self.target_quantity_message * 1.2:
+        quantity_message = data[-1] # Índice -1: msg por segundo
+        if quantity_message > self.target_quantity_message * 1.08:
             return -1
-        elif quantity_message < self.target_quantity_message * 0.8:
+        elif quantity_message < self.target_quantity_message * 0.92:
             return 1
         else:   
             return 0
