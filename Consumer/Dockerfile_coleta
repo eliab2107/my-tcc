@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 
 
-CMD ["python", "-m", "Consumer.manager", "--modo", "impacto"]
+CMD ["python", "-m", "Consumer.manager", "--modo", "coleta"]
