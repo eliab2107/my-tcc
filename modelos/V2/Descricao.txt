@@ -1,0 +1,1 @@
+Modelos criados a partide da execução usando uma politica com tolerância de 0.1 e intervalo de observação de 20 segundos

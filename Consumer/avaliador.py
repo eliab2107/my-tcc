@@ -3,8 +3,8 @@ import math
 import csv
 import os
 import requests
-import psutil
-from threading import Thread, Lock
+import threading
+from threading import Thread, Lock, Event
 from typing import List
 from dotenv import load_dotenv
 from Consumer.consumer import Consumer
@@ -14,50 +14,45 @@ load_dotenv()
 # ------------------------------------------------------------------
 # Configuração
 # ------------------------------------------------------------------
-INTERVALO_DE_MONITORAMENTO = int(os.getenv("MONITOR_INTERVAL", 5))
+INTERVALO_DE_MONITORAMENTO = int(os.getenv("MONITOR_INTERVAL", 30))
 PREFETCH_INICIAL           = int(os.getenv("PREFETCH_INICIAL", 1))
-CSV_FLUSH_INTERVAL         = int(os.getenv("CSV_FLUSH_INTERVAL", 60))
+CSV_FLUSH_INTERVAL         = int(os.getenv("CSV_FLUSH_INTERVAL", 300))
 
 RABBITMQ_API_URL  = os.getenv("RABBITMQ_API_URL", f"http://{os.getenv('RABBITMQ_HOST', 'localhost')}:15672")
 RABBITMQ_API_USER = os.getenv("RABBITMQ_USER", "guest")
 RABBITMQ_API_PASS = os.getenv("RABBITMQ_PASS", "guest")
 RABBITMQ_QUEUE    = os.getenv("RABBITMQ_QUEUE", "fila_teste")
 
+# Tempo máximo para aguardar confirmação da aplicação do prefetch
+PREFETCH_APPLY_TIMEOUT = float(os.getenv("PREFETCH_APPLY_TIMEOUT", 3.0))
+
 # ------------------------------------------------------------------
-# Cenários disponíveis
-# Cada cenário define a sequência de targets e o intervalo de troca.
-# O producer deve ser configurado externamente de acordo com o cenário.
+# Cenários
 # ------------------------------------------------------------------
-CENARIOS = {   
-    
+CENARIOS = {
     "mudanca_target": {
-        "targets":         [400, 900, 1200],
-        "change_interval": 58,     # segundos
-        "duracao_min":     3,
+        "targets":         [210],
+        "change_interval": 8000,
+        "duracao_min":     120,
     },
 }
 
 # ------------------------------------------------------------------
-# Header do CSV de avaliação — diferente do CSV de coleta,
-# focado nas métricas de controle
+# Header do CSV
 # ------------------------------------------------------------------
 AVALIACAO_HEADER = [
-    "tick",
-    "timestamp",
-    "cenario",
-    "controlador",
-    # Métricas de controle
+    "tick", "timestamp", "cenario", "controlador",
     "msgs_processadas_intervalo",
+    "msgs_por_segundo",
     "target_atual",
-    "erro_absoluto",               # abs(msgs - target)
-    "erro_relativo",               # (msgs - target) / target
-    "dentro_banda",                # 1 se abs(erro_relativo) <= 0.1
+    "erro_absoluto",
+    "erro_relativo",
+    "dentro_banda",
     "fila_broker",
-    # Estado do controlador
     "prefetch_count",
     "decisao",
-    # Para calcular convergência no pós-processamento
     "ticks_desde_mudanca_target",
+    "prefetch_aplicado",   # 1 se o prefetch foi confirmado neste tick, 0 se ainda pendente
 ]
 
 
@@ -73,10 +68,10 @@ class EvaluationManager:
     ):
         assert cenario in CENARIOS, f"Cenário inválido: {cenario}. Opções: {list(CENARIOS.keys())}"
 
-        self.policy           = policy
-        self.controlador      = controlador
-        self.cenario          = cenario
-        self.monitor_interval = monitor_interval
+        self.policy            = policy
+        self.controlador       = controlador
+        self.cenario           = cenario
+        self.monitor_interval  = monitor_interval
         self._initial_prefetch = prefetch_count
 
         cfg = CENARIOS[cenario]
@@ -94,26 +89,23 @@ class EvaluationManager:
         self.target_thread:    Thread | None  = None
 
         self.running     = False
-        self.processo    = psutil.Process(os.getpid())
         self._data:      list = []
         self._data_lock  = Lock()
         self._tick_count = 0
 
-        # Controle de target
-        self._target_index   = 0
-        self.target_quantity_message = self._targets[0]
-
-        # Controle de convergência
+        self._target_index               = 0
+        self.target_quantity_message     = self._targets[0]
         self._ticks_desde_mudanca_target = 0
+        self._last_action                = 0
 
-        # Última ação
-        self._last_action = 0
+        # Evento usado para aguardar confirmação da aplicação do prefetch
+        self._prefetch_applied_event = Event()
 
     # ------------------------------------------------------------------
     # Inicialização
     # ------------------------------------------------------------------
     def start(self) -> None:
-        self.running   = True
+        self.running     = True
         self._start_time = time.time()
 
         c = Consumer(id=0, prefetch_count=self._initial_prefetch)
@@ -143,7 +135,7 @@ class EvaluationManager:
         )
 
     # ------------------------------------------------------------------
-    # Rotação de target — sequência fixa, sem aleatoriedade
+    # Rotação de target
     # ------------------------------------------------------------------
     def _target_loop(self) -> None:
         while self.running:
@@ -154,10 +146,9 @@ class EvaluationManager:
             novo_target = self._targets[self._target_index]
 
             if novo_target != self.target_quantity_message:
-                self.target_quantity_message = novo_target
-                self._ticks_desde_mudanca_target = 0  # reseta contador de convergência
+                self.target_quantity_message     = novo_target
+                self._ticks_desde_mudanca_target = 0
 
-                # Propaga o novo target para a policy se ela suportar
                 if hasattr(self.policy, "set_target_quantity_message"):
                     self.policy.set_target_quantity_message(novo_target)
 
@@ -176,7 +167,6 @@ class EvaluationManager:
     def _monitor_tick(self) -> None:
         time.sleep(self.monitor_interval)
 
-        # Encerra automaticamente ao atingir a duração do cenário
         if time.time() - self._start_time >= self._duracao_segundos:
             print(f"[Avaliação] Duração atingida — encerrando {self.controlador}/{self.cenario}")
             self.running = False
@@ -189,46 +179,73 @@ class EvaluationManager:
         # 1. Métricas do consumer
         dados = self.consumers[0].get_data() if self.consumers else []
         n, avg_proc, avg_latency = self._calcular_medias(dados)
+        msgs_por_segundo = round(n / self.monitor_interval, 4)
 
         # 2. Fila no broker
         fila_broker = self._get_queue_size()
 
-        # 3. Estado do controlador
+        # 3. Estado atual do controlador
         prefetch_atual = self.consumers[0].prefetch_count
 
         # 4. Métricas de controle
         target        = self.target_quantity_message
-        erro_absoluto = abs(n - target)
-        erro_relativo = (n - target) / target if target > 0 else 0
+        erro_absoluto = abs(msgs_por_segundo - target)
+        erro_relativo = (msgs_por_segundo - target) / target if target > 0 else 0
         dentro_banda  = int(abs(erro_relativo) <= 0.1)
 
-        # 5. Decisão — SEM perturbação aleatória na avaliação
+        # 5. Monta array no novo formato (sem CPU/RAM, com msgs_por_segundo)
         dados_para_policy = [
-            round(timestamp, 3),
-            n,
-            round(avg_proc,    8),
-            round(avg_latency, 8),
-            fila_broker,
-            prefetch_atual,
-            self._last_action,
-            target,
-            n - target,       # distancia
-            0, 0, 0, 0,       # cpu/ram — não usados na avaliação mas mantém formato
+            round(timestamp, 3),   # 0  timestamp
+            n,                     # 1  msgs_processadas_intervalo
+            msgs_por_segundo,      # 2  msgs_por_segundo
+            round(avg_proc,    8), # 3  avg_processing_time
+            round(avg_latency, 8), # 4  avg_queue_latency
+            fila_broker,           # 5  fila_broker
+            prefetch_atual,        # 6  prefetch_count
+            self._last_action,     # 7  ultima_acao
+            target,                # 8  target_atual
+            msgs_por_segundo - target,  # 9  distancia_target
         ]
 
-        ajuste = 0
+        # 6. Decisão — sem perturbação
+        ajuste           = 0
+        prefetch_aplicado = 0
+
         if self.running:
             ajuste = self.policy.decide(dados_para_policy)
+
             if ajuste != 0:
+                # Limpa o evento antes de agendar para garantir que
+                # não está setado de uma aplicação anterior
+                self._prefetch_applied_event.clear()
+
+                # Agenda o ajuste na thread do consumer
                 self._ajustar_prefetch(consumer_id=0, ajuste=ajuste)
 
-        # 6. Monta linha de avaliação
+                # Aguarda confirmação com timeout
+                # Se o consumer confirmar dentro do timeout, registra como aplicado
+                aplicado = self._prefetch_applied_event.wait(
+                    timeout=PREFETCH_APPLY_TIMEOUT
+                )
+                prefetch_aplicado = 1 if aplicado else 0
+
+                if not aplicado:
+                    print(
+                        f"[{self.controlador}] AVISO: prefetch não confirmado em "
+                        f"{PREFETCH_APPLY_TIMEOUT}s — continuando sem bloquear"
+                    )
+
+                # Lê o prefetch após aguardar — reflete o valor real aplicado
+                prefetch_atual = self.consumers[0].prefetch_count
+
+        # 7. Monta linha
         linha = [
             self._tick_count,
             round(timestamp, 3),
             self.cenario,
             self.controlador,
             n,
+            msgs_por_segundo,
             target,
             erro_absoluto,
             round(erro_relativo, 6),
@@ -237,6 +254,7 @@ class EvaluationManager:
             prefetch_atual,
             ajuste,
             self._ticks_desde_mudanca_target,
+            prefetch_aplicado,
         ]
 
         self._last_action = ajuste
@@ -246,16 +264,32 @@ class EvaluationManager:
 
         print(
             f"[{self.controlador}] tick={self._tick_count} "
-            f"| msgs={n} | target={target} "
+            f"| msgs={n} | msgs/s={msgs_por_segundo} | target={target} "
             f"| erro={erro_relativo:+.2f} | banda={dentro_banda} "
             f"| prefetch={prefetch_atual} | acao={ajuste:+d}"
         )
 
     # ------------------------------------------------------------------
-    # Ajuste de prefetch
+    # Ajuste de prefetch com sinalização de confirmação
     # ------------------------------------------------------------------
     def _ajustar_prefetch(self, consumer_id: int, ajuste: int) -> None:
-        self.consumers[consumer_id].set_new_prefetch_count(ajuste)
+        """
+        Agenda o ajuste de prefetch na thread do consumer via
+        add_callback_threadsafe e registra um callback de confirmação
+        que sinaliza o evento quando o prefetch foi de fato aplicado.
+        """
+        consumer = self.consumers[consumer_id]
+        event    = self._prefetch_applied_event
+
+        # Calcula o novo valor aqui para passar ao callback
+        with consumer._lock:
+            novo = max(1, consumer._prefetch_count + ajuste)
+
+        def _aplicar_e_sinalizar():
+            consumer._recreate_consumer(novo)
+            event.set()  # sinaliza para o monitor_tick que o prefetch foi aplicado
+
+        consumer.connection.add_callback_threadsafe(_aplicar_e_sinalizar)
 
     # ------------------------------------------------------------------
     # Fila no broker
@@ -329,7 +363,7 @@ class EvaluationManager:
 
 
 # ------------------------------------------------------------------
-# Entrypoint — troca só a policy e o cenário, tudo mais é igual
+# Entrypoint
 # ------------------------------------------------------------------
 def rodar_avaliacao(policy, controlador: str, cenario: str) -> None:
     manager = EvaluationManager(
@@ -353,24 +387,28 @@ def rodar_avaliacao(policy, controlador: str, cenario: str) -> None:
 if __name__ == "__main__":
     from policies.policies import (
         BaseMessageQuantityPolicy,
-        RandomForestBaseInQtdMsgPolicy,
-        XGBoostPolicyBaseInQtdMsgPolicy,
-        MLPBaseInQtdMsgPolicy,
         MLPolicy,
     )
 
-    # ------------------------------------------------------------------
-    # Configure aqui qual controlador e cenário rodar.
-    # Para rodar todos em sequência, descomente o loop abaixo.
-    # ------------------------------------------------------------------
-
     EXPERIMENTOS = [
-        # (policy,                                                                                        controlador,         cenario)
-        #(BaseMessageQuantityPolicy(target_quantity_message=300),                                        "heuristica_simples", "mudanca_target"),
-        #(MLPBaseInQtdMsgPolicy("modelos/BaseQtdMsg/mlp_model.joblib", "modelos/BaseQtdMsg/mlp_scaler.joblib"),        "mlp",           "mudanca_target"),
-        #(RandomForestBaseInQtdMsgPolicy("modelos/BaseQtdMsg/random_forest_model.joblib"),                                      "random_forest", "mudanca_target"),
-        (XGBoostPolicyBaseInQtdMsgPolicy("modelos/BaseQtdMsg/xgboost_model.joblib", "modelos\BaseQtdMsg\label_encoder.joblib" ), "xgboost",       "mudanca_target"),
-        # Adicione os demais controladores seguindo o mesmo padrão
+        (MLPolicy("modelos/V2/random_forest_model.joblib"),
+         "random_forest", "mudanca_target"),
+
+        (MLPolicy("modelos/V2/xgboost_model.joblib",
+                  encoder_path="modelos/V2/label_encoder_xgboost.joblib"),
+         "xgboost", "mudanca_target"),
+
+        (MLPolicy("modelos/V2/lgbm_model.joblib",
+                  encoder_path="modelos/V2/label_encoder_lgbm.joblib"),
+         "lgbm", "mudanca_target"),
+
+        (MLPolicy("modelos/V2/knn_model.joblib",
+                  scaler_path="modelos/V2/scaler_knn.joblib"),
+         "knn", "mudanca_target"),
+
+        (MLPolicy("modelos/V2/mlp_model.joblib",
+                  scaler_path="modelos/V2/mlp_scaler.joblib"),
+         "mlp", "mudanca_target"),
     ]
 
     for policy, controlador, cenario in EXPERIMENTOS:
@@ -378,5 +416,5 @@ if __name__ == "__main__":
         print(f"Iniciando: {controlador} / {cenario}")
         print(f"{'='*60}")
         rodar_avaliacao(policy, controlador, cenario)
-        print(f"Aguardando 30s antes do próximo experimento...")
-        time.sleep(30)  # pausa entre experimentos para o sistema estabilizar
+        print("Aguardando 30s antes do próximo experimento...")
+        time.sleep(30)

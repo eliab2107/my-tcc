@@ -140,13 +140,14 @@ class MLPBaseInQtdMsgPolicy():
         return int(self.model.predict(data_scaled_to_model)[0])
 
 class MLPolicy():
-    def __init__(self, model_path: str, scaler_path: str = None):
-        self.model       = joblib.load(model_path)
-        self._builder    = FeatureBuilder()
-        if scaler_path:
-            self.scaler      = joblib.load(scaler_path)
-        self._prev_target = None 
-        
+    def __init__(self, model_path: str, scaler_path: str = None, encoder_path: str = None):
+        self.model        = joblib.load(model_path)
+        self._builder     = FeatureBuilder()
+        self._prev_target = None
+
+        self.scaler  = joblib.load(scaler_path)  if scaler_path  else None
+        self.encoder = joblib.load(encoder_path) if encoder_path else None
+
     def decide(self, raw: list) -> int:
         mudou_target = (
             self._prev_target is not None and
@@ -155,11 +156,14 @@ class MLPolicy():
         self._prev_target = raw[FeatureBuilder.I_TARGET]
 
         snapshot = self._builder.build(raw, mudou_target=mudou_target)
-        data_formated_to_model = self._builder.to_dataframe(snapshot)
-        
-        if hasattr(self, 'scaler'):
-            data_scaled_to_model = self.scaler.transform(data_formated_to_model)
-        else:
-            data_scaled_to_model = data_formated_to_model
+        x_line = self._builder.to_dataframe(snapshot)
 
-        return int(self.model.predict(data_scaled_to_model)[0])
+        x_input = self.scaler.transform(x_line) if self.scaler else x_line
+
+        pred = self.model.predict(x_input)[0]
+
+        # Decodifica 0,1,2 → -1,0,1 se houver encoder (XGBoost e LightGBM)
+        if self.encoder:
+            return int(self.encoder.inverse_transform([int(pred)])[0])
+
+        return int(pred)

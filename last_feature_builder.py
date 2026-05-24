@@ -28,13 +28,12 @@ class FeatureBuilder:
     FEATURE_COLUMNS = [
         "msgs_processadas_intervalo",
         "msgs_por_segundo",
-        "avg_processing_time",
+        "fila_broker",
         "avg_queue_latency",
-        "fila_broker",     
+        "avg_processing_time",
         "prefetch_count",
         "ultima_acao",
         "target_atual",
-        "distancia_target",
         "erro_relativo",
         "delta_msgs",
         "delta_fila",
@@ -55,13 +54,12 @@ class FeatureBuilder:
         prefetch     = raw[self.I_PREFETCH]
         ultima_acao  = raw[self.I_LAST_ACT]
         target       = raw[self.I_TARGET]
-        distancia_target = raw[self.I_DISTANCIA]
 
-        erro_relativo    = (n - target) / target if target > 0 else 0
+        erro_relativo    = (msgs_s - target) / target if target > 0 else 0
         razao_fila_vazao = fila_broker / n if n > 0 else 0
 
         if self._prev is None or mudou_target:
-            delta_msgs     = 0
+            delta_msgs     = 0 
             delta_fila     = 0
             delta_latencia = 0
             delta_prefetch = 0
@@ -74,13 +72,12 @@ class FeatureBuilder:
         snapshot = {
             "msgs_processadas_intervalo": n,
             "msgs_por_segundo":           msgs_s,
-            "avg_processing_time":        avg_proc,
-            "avg_queue_latency":          avg_latency,
             "fila_broker":                fila_broker,
+            "avg_queue_latency":          avg_latency,
+            "avg_processing_time":        avg_proc,
             "prefetch_count":             prefetch,
             "ultima_acao":                ultima_acao,
             "target_atual":               target,
-            "distancia_target":           distancia_target,
             "erro_relativo":              erro_relativo,
             "delta_msgs":                 delta_msgs,
             "delta_fila":                 delta_fila,
