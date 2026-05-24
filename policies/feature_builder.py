@@ -57,8 +57,8 @@ class FeatureBuilder:
         target       = raw[self.I_TARGET]
         distancia_target = raw[self.I_DISTANCIA]
 
-        erro_relativo    = (n - target) / target if target > 0 else 0
-        razao_fila_vazao = fila_broker / n if n > 0 else 0
+        erro_relativo    = (msgs_s - target) / target if target > 0 else 0
+        razao_fila_vazao = fila_broker / msgs_s if msgs_s > 0 else 0
 
         if self._prev is None or mudou_target:
             delta_msgs     = 0
@@ -66,7 +66,7 @@ class FeatureBuilder:
             delta_latencia = 0
             delta_prefetch = 0
         else:
-            delta_msgs     = n           - self._prev["msgs_processadas_intervalo"]
+            delta_msgs     = msgs_s      - self._prev["msgs_por_segundo"]
             delta_fila     = fila_broker - self._prev["fila_broker"]
             delta_latencia = avg_latency - self._prev["avg_queue_latency"]
             delta_prefetch = prefetch    - self._prev["prefetch_count"]
