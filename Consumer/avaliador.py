@@ -14,9 +14,9 @@ load_dotenv()
 # ------------------------------------------------------------------
 # Configuração
 # ------------------------------------------------------------------
-INTERVALO_DE_MONITORAMENTO = int(os.getenv("MONITOR_INTERVAL", 30))
+INTERVALO_DE_MONITORAMENTO = 30
 PREFETCH_INICIAL           = int(os.getenv("PREFETCH_INICIAL", 1))
-CSV_FLUSH_INTERVAL         = int(os.getenv("CSV_FLUSH_INTERVAL", 300))
+CSV_FLUSH_INTERVAL         = int(os.getenv("CSV_FLUSH_INTERVAL", 600))
 
 RABBITMQ_API_URL  = os.getenv("RABBITMQ_API_URL", f"http://{os.getenv('RABBITMQ_HOST', 'localhost')}:15672")
 RABBITMQ_API_USER = os.getenv("RABBITMQ_USER", "guest")
@@ -31,9 +31,9 @@ PREFETCH_APPLY_TIMEOUT = float(os.getenv("PREFETCH_APPLY_TIMEOUT", 3.0))
 # ------------------------------------------------------------------
 CENARIOS = {
     "mudanca_target": {
-        "targets":         [210],
-        "change_interval": 8000,
-        "duracao_min":     120,
+        "targets":         [230, 30, 190, 75, 140],
+        "change_interval": 2160,#8000
+        "duracao_min":     180,
     },
 }
 
@@ -391,24 +391,15 @@ if __name__ == "__main__":
     )
 
     EXPERIMENTOS = [
-        (MLPolicy("modelos/V2/random_forest_model.joblib"),
-         "random_forest", "mudanca_target"),
+#        (MLPolicy("modelos/V2/random_forest_model.joblib"),   "random_forest", "mudanca_target"),
 
-        (MLPolicy("modelos/V2/xgboost_model.joblib",
-                  encoder_path="modelos/V2/label_encoder_xgboost.joblib"),
-         "xgboost", "mudanca_target"),
+#        (MLPolicy("modelos/V2/xgboost_model.joblib",  encoder_path="modelos/V2/label_encoder_xgboost.joblib"), "xgboost", "mudanca_target"),
 
-        (MLPolicy("modelos/V2/lgbm_model.joblib",
-                  encoder_path="modelos/V2/label_encoder_lgbm.joblib"),
-         "lgbm", "mudanca_target"),
+#        (MLPolicy("modelos/V2/lgbm_model.joblib",     encoder_path="modelos/V2/label_encoder_lgbm.joblib"),      "lgbm", "mudanca_target"),
 
-        (MLPolicy("modelos/V2/knn_model.joblib",
-                  scaler_path="modelos/V2/scaler_knn.joblib"),
-         "knn", "mudanca_target"),
+#         (MLPolicy("modelos/V2/knn_model.joblib",   scaler_path="modelos/V2/scaler_knn.joblib"),     "knn", "mudanca_target"),
 
-        (MLPolicy("modelos/V2/mlp_model.joblib",
-                  scaler_path="modelos/V2/mlp_scaler.joblib"),
-         "mlp", "mudanca_target"),
+        (MLPolicy("modelos/V2/mlp_model.joblib",        scaler_path="modelos/V2/mlp_scaler.joblib"), "mlp", "mudanca_target"),
     ]
 
     for policy, controlador, cenario in EXPERIMENTOS:
