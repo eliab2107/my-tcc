@@ -172,15 +172,22 @@ class MLPolicy():
 class HPAInspiredPolicy:
 
     def decide(self, raw: list) -> int:
-        n      = raw[FeatureBuilder.I_MSGS]
-        target = raw[FeatureBuilder.I_TARGET]
+        n        = raw[FeatureBuilder.I_MSGS]
+        target   = raw[FeatureBuilder.I_TARGET]
         prefetch = raw[FeatureBuilder.I_PREFETCH]
 
-        if target == 0:
+        if target == 0 or n == 0:
             return 0
 
         new_pc = round(prefetch * (n / target))
-        
         new_pc = max(1, new_pc)
-        
-        return new_pc - prefetch
+
+        delta = new_pc - prefetch
+
+        # Limita o delta preservando o sinal
+        if delta > 30:
+            return 30
+        if delta < -30:
+            return -30
+
+        return delta
