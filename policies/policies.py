@@ -180,4 +180,7 @@ class HPAInspiredPolicy:
             return 0
 
         new_pc = round(prefetch * (n / target))
+        
+        new_pc = max(1, new_pc)
+        
         return new_pc - prefetch
