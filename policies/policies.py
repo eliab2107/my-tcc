@@ -180,14 +180,13 @@ class HPAInspiredPolicy:
             return 0
 
         new_pc = round(prefetch * (n / target))
-        new_pc = max(1, new_pc)
+
+        # Teto absoluto — fundamentado no experimento de impacto do prefetch
+        new_pc = max(1, min(new_pc, 30))
 
         delta = new_pc - prefetch
 
-        # Limita o delta preservando o sinal
-        if delta > 30:
-            return 30
-        if delta < -30:
-            return -30
+        # Limita a velocidade de mudança por tick
+        delta = max(-30, min(delta, 30))
 
         return delta
