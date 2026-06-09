@@ -167,3 +167,17 @@ class MLPolicy():
             return int(self.encoder.inverse_transform([int(pred)])[0])
 
         return int(pred)
+    
+
+class HPAInspiredPolicy:
+
+    def decide(self, raw: list) -> int:
+        n      = raw[FeatureBuilder.I_MSGS]
+        target = raw[FeatureBuilder.I_TARGET]
+        prefetch = raw[FeatureBuilder.I_PREFETCH]
+
+        if target == 0:
+            return 0
+
+        new_pc = round(prefetch * (n / target))
+        return new_pc - prefetch
