@@ -398,10 +398,10 @@ if __name__ == "__main__":
 
 #        (MLPolicy("modelos/V2/lgbm_model.joblib",     encoder_path="modelos/V2/label_encoder_lgbm.joblib"),      "lgbm", "mudanca_target"),
 
-#         (MLPolicy("modelos/V2/knn_model.joblib",   scaler_path="modelos/V2/scaler_knn.joblib"),     "knn", "mudanca_target"),
+#        (MLPolicy("modelos/V2/knn_model.joblib",   scaler_path="modelos/V2/scaler_knn.joblib"),     "knn", "mudanca_target"),
 
 #        (MLPolicy("modelos/V2/mlp_model.joblib",        scaler_path="modelos/V2/mlp_scaler.joblib"), "mlp", "mudanca_target"),
-        (HPAInspiredPolicy(), "hpa_inspired", "mudanca_target"),
+         (HPAInspiredPolicy(), "hpa_inspired", "mudanca_target"),
     ]
 
     for policy, controlador, cenario in EXPERIMENTOS:
