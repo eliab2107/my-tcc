@@ -172,7 +172,7 @@ class MLPolicy():
 class HPAInspiredPolicy:
 
     def decide(self, raw: list) -> int:
-        n        = raw[FeatureBuilder.I_MSGS]
+        n        = raw[FeatureBuilder.I_MSGS_S]
         target   = raw[FeatureBuilder.I_TARGET]
         prefetch = raw[FeatureBuilder.I_PREFETCH]
 
