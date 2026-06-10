@@ -180,11 +180,11 @@ class HPAInspiredPolicy:
             return 0
 
         new_pc = round(prefetch * (n / target))
+        new_pc = max(1, min(new_pc, 30))
 
-        # Teto absoluto — fundamentado no experimento de impacto do prefetch
-        #new_pc = max(1, min(new_pc, 30))
+        # Se a fórmula não conseguiu subir mas está abaixo do target,
+        # força pelo menos +1 para sair do estado travado
+        if new_pc <= prefetch and n < target * 0.9:
+            new_pc = prefetch + 1
 
-        delta = new_pc - prefetch
-
-
-        return delta
+        return new_pc - prefetch
