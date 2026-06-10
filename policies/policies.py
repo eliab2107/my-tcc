@@ -182,11 +182,9 @@ class HPAInspiredPolicy:
         new_pc = round(prefetch * (n / target))
 
         # Teto absoluto — fundamentado no experimento de impacto do prefetch
-        new_pc = max(1, min(new_pc, 30))
+        #new_pc = max(1, min(new_pc, 30))
 
         delta = new_pc - prefetch
 
-        # Limita a velocidade de mudança por tick
-        delta = max(-30, min(delta, 30))
 
         return delta
